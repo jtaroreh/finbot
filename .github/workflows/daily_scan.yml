@@ -28,4 +28,6 @@ jobs:
       - name: Run finbot scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINBOT_GROK_WEBHOOK_URL: ${{ secrets.FINBOT_GROK_WEBHOOK_URL }}
+          FINBOT_GROK_WEBHOOK_SECRET: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET }}
         run: python -m finbot.cli

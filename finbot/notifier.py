@@ -1,4 +1,4 @@
-"""Create a dedicated GitHub Issue for an entry snapshot; skip duplicates."""
+"""GitHub Issue + Grok Bot webhook alerts for an entry snapshot."""
 
 from __future__ import annotations
 
@@ -15,10 +15,12 @@ logger = logging.getLogger(__name__)
 GITHUB_API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 ENTRY_LABEL = "entry-alert"
 API_VERSION = "2022-11-28"
+WEBHOOK_URL_ENV = "FINBOT_GROK_WEBHOOK_URL"
+WEBHOOK_SECRET_ENV = "FINBOT_GROK_WEBHOOK_SECRET"
 
 
 class NotifyError(RuntimeError):
-    """Raised when GitHub Issue creation or lookup fails."""
+    """Raised when GitHub Issue or Grok Bot webhook notify fails."""
 
 
 def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
@@ -53,6 +55,112 @@ def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
     url = data.get("html_url", "")
     logger.info("Created Issue #%s %s", data.get("number"), url)
     return str(url)
+
+
+def notify(result: ScanResult, dry_run: bool = False) -> str | None:
+    """Create the Issue (if any), then POST the same alert to the Grok Bot webhook."""
+    issue_url: str | None = None
+    issue_error: NotifyError | None = None
+    try:
+        issue_url = maybe_create_issue(result, dry_run=dry_run)
+    except NotifyError as exc:
+        issue_error = exc
+        logger.error("%s: Issue notify failed: %s", result.ticker, exc)
+
+    webhook_error: NotifyError | None = None
+    try:
+        maybe_post_webhook(result, issue_url=issue_url, dry_run=dry_run)
+    except NotifyError as exc:
+        webhook_error = exc
+        logger.error("%s: webhook notify failed: %s", result.ticker, exc)
+
+    if issue_error and webhook_error:
+        raise NotifyError(f"{issue_error}; {webhook_error}") from webhook_error
+    if issue_error:
+        raise issue_error
+    if webhook_error:
+        raise webhook_error
+    return issue_url
+
+
+def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str, Any]:
+    snap = result.snapshot
+    targets = dict(result.levels.targets) if result.levels is not None else {}
+    payload: dict[str, Any] = {
+        "ticker": result.ticker,
+        "signal": "ENTRY" if result.entry_triggered else "NO_ENTRY",
+        "signal_date": result.signal_date.isoformat(),
+        "entry": _json_num(result.levels.entry if result.levels else snap.close),
+        "stop": _json_num(result.levels.stop if result.levels else None),
+        "target_2r": _json_num(targets.get(2)),
+        "target_3r": _json_num(targets.get(3)),
+        "gates": {
+            gate.name: {"passed": gate.passed, "detail": gate.detail} for gate in result.gates
+        },
+        "indicators": {
+            "open": _json_num(snap.open),
+            "high": _json_num(snap.high),
+            "low": _json_num(snap.low),
+            "close": _json_num(snap.close),
+            "volume": _json_num(snap.volume),
+            "volume_avg_20": _json_num(snap.volume_avg_20),
+            "volume_multiple": _json_num(snap.volume_multiple),
+            "sma_20": _json_num(snap.sma_20),
+            "sma_50": _json_num(snap.sma_50),
+            "sma_200": _json_num(snap.sma_200),
+            "rsi_14": _json_num(snap.rsi_14),
+            "atr_14": _json_num(snap.atr_14),
+            "swing_support": _json_num(snap.swing_support),
+            "swing_resistance": _json_num(snap.swing_resistance),
+        },
+        "earnings": {
+            "next": result.next_earnings.isoformat() if result.next_earnings else None,
+            "blackout_passed": result.gate("earnings").passed,
+            "detail": result.gate("earnings").detail,
+        },
+    }
+    if issue_url:
+        payload["issue_url"] = issue_url
+    return payload
+
+
+def maybe_post_webhook(
+    result: ScanResult,
+    issue_url: str | None = None,
+    dry_run: bool = False,
+) -> bool:
+    """POST one JSON alert per firing ticker. Skip quietly when secrets are missing."""
+    if not result.entry_triggered:
+        logger.info("%s %s: no entry — skipping webhook", result.ticker, result.signal_date)
+        return False
+    if dry_run:
+        logger.info("%s %s: dry-run — webhook not posted", result.ticker, result.signal_date)
+        return False
+
+    url, secret = _webhook_credentials(result.ticker)
+    if not url or not secret:
+        logger.info(
+            "%s %s: webhook skipped (%s or %s unset)",
+            result.ticker,
+            result.signal_date,
+            WEBHOOK_URL_ENV,
+            WEBHOOK_SECRET_ENV,
+        )
+        return False
+
+    payload = alert_payload(result, issue_url=issue_url)
+    headers = {
+        "Authorization": f"Bearer {secret}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    if response.status_code != 200:
+        raise NotifyError(
+            f"Grok Bot webhook failed ({response.status_code}): {response.text[:500]}"
+        )
+    logger.info("%s %s: posted Grok Bot webhook", result.ticker, result.signal_date)
+    return True
 
 
 def find_existing_issue(title: str, ticker: str, signal_date: object) -> dict[str, Any] | None:
@@ -147,6 +255,27 @@ def _request(method: str, path: str, params: dict[str, Any] | None = None, json:
     else:
         url = f"{GITHUB_API}{path}"
     return requests.request(method, url, headers=_headers(), params=params, json=json, timeout=30)
+
+
+def _webhook_credentials(ticker: str) -> tuple[str | None, str | None]:
+    symbol = ticker.upper()
+    url = _env(f"{WEBHOOK_URL_ENV}_{symbol}") or _env(WEBHOOK_URL_ENV)
+    secret = _env(f"{WEBHOOK_SECRET_ENV}_{symbol}") or _env(WEBHOOK_SECRET_ENV)
+    return url, secret
+
+
+def _env(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _json_num(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 4)
 
 
 def _next_link(header: str) -> str | None:

@@ -10,7 +10,7 @@ from typing import Sequence
 from finbot.config import AppConfig, TickerConfig, load_config
 from finbot.data import DataError, fetch_earnings_dates, fetch_ohlcv
 from finbot.indicators import build_snapshot
-from finbot.notifier import NotifyError, maybe_create_issue
+from finbot.notifier import NotifyError, notify
 from finbot.strategy import ScanResult, evaluate, format_report
 
 logger = logging.getLogger("finbot")
@@ -24,7 +24,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the markdown snapshot and do not create a GitHub Issue.",
+        help="Print the markdown snapshot; do not create a GitHub Issue or POST the Grok Bot webhook.",
     )
     parser.add_argument(
         "--config",
@@ -95,7 +95,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             logger.info("%s %s: %s", result.ticker, result.signal_date, result.summary)
 
         try:
-            url = maybe_create_issue(result, dry_run=args.dry_run)
+            url = notify(result, dry_run=args.dry_run)
         except NotifyError as exc:
             logger.error("%s: notify failed: %s", cfg.symbol, exc)
             failures += 1
