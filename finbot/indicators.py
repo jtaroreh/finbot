@@ -1,4 +1,4 @@
-"""SMA, RSI, ATR, volume ratio, and swing support/resistance."""
+"""SMA, RSI (daily + weekly), ATR, volume ratio, and structural swing levels."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ class Snapshot:
     sma_200: float | None
     rsi_14: float | None
     rsi_14_prev: float | None
+    rsi_weekly: float | None
+    rsi_weekly_prev: float | None
     atr_14: float | None
     volume_avg_20: float | None
     volume_multiple: float | None
@@ -33,6 +35,9 @@ class Snapshot:
     golden_cross_recent: bool
     close_crossed_above_sma50: bool
     sma50_above_sma200: bool
+    sma_200_slope_up: bool
+    sma_200_distance_pct: float | None
+    sma_200_reclaim: bool
 
 
 def sma(series: pd.Series, period: int) -> pd.Series:
@@ -54,6 +59,22 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return rsi_value.where(~both_zero, 50.0)
 
 
+def weekly_close(close: pd.Series) -> pd.Series:
+    """Resample daily closes to weekly Friday bars, including the in-progress week."""
+    if close.empty:
+        return close.copy()
+    series = close.copy()
+    if not isinstance(series.index, pd.DatetimeIndex):
+        series.index = pd.to_datetime(series.index)
+    weekly = series.resample("W-FRI").last()
+    return weekly.dropna()
+
+
+def weekly_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder RSI on weekly closes resampled from daily bars."""
+    return rsi(weekly_close(close), period)
+
+
 def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     prev_close = close.shift(1)
     return pd.concat(
@@ -73,11 +94,11 @@ def volume_average_prior(volume: pd.Series, period: int = 20) -> pd.Series:
     return volume.shift(1).rolling(window=period, min_periods=period).mean()
 
 
-def swing_lows(low: pd.Series, left: int = 5, right: int = 5) -> pd.Series:
+def swing_lows(low: pd.Series, left: int = 10, right: int = 10) -> pd.Series:
     return _fractal_extrema(low, left=left, right=right, mode="low")
 
 
-def swing_highs(high: pd.Series, left: int = 5, right: int = 5) -> pd.Series:
+def swing_highs(high: pd.Series, left: int = 10, right: int = 10) -> pd.Series:
     return _fractal_extrema(high, left=left, right=right, mode="high")
 
 
@@ -86,6 +107,50 @@ def latest_confirmed_swing(swings: pd.Series) -> float | None:
     if valid.empty:
         return None
     return float(valid.iloc[-1])
+
+
+def sma_is_rising(series: pd.Series, lookback: int) -> bool:
+    """True when the last value is strictly above the value `lookback` bars earlier."""
+    if lookback <= 0 or len(series) <= lookback:
+        return False
+    last = _opt_float(series.iloc[-1])
+    prior = _opt_float(series.iloc[-1 - lookback])
+    if last is None or prior is None:
+        return False
+    return last > prior
+
+
+def is_sma200_reclaim(
+    close: pd.Series,
+    sma200: pd.Series,
+    *,
+    washout_pct: float,
+    washout_lookback: int,
+    recent_bars: int,
+) -> bool:
+    """Close is back above the 200 SMA after a deep washout and a recent stay below it."""
+    if close.empty or sma200.empty:
+        return False
+    last_close = _opt_float(close.iloc[-1])
+    last_sma = _opt_float(sma200.iloc[-1])
+    if last_close is None or last_sma is None or last_close <= last_sma:
+        return False
+
+    aligned = pd.concat({"close": close, "sma": sma200}, axis=1).dropna()
+    if aligned.empty:
+        return False
+
+    wash = aligned.iloc[-washout_lookback:] if washout_lookback > 0 else aligned
+    dist = (wash["close"] - wash["sma"]) / wash["sma"]
+    had_washout = bool((dist <= -washout_pct / 100.0).any())
+
+    if recent_bars <= 0:
+        was_below = False
+    else:
+        prior = aligned.iloc[-(recent_bars + 1) : -1]
+        was_below = bool((prior["close"] <= prior["sma"]).any()) if not prior.empty else False
+
+    return had_washout and was_below
 
 
 def add_indicators(ohlcv: pd.DataFrame, cfg: TickerConfig) -> pd.DataFrame:
@@ -114,6 +179,7 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
 
     sma50 = _opt_float(last.get("SMA_50"))
     sma200 = _opt_float(last.get("SMA_200"))
+    last_close = float(last["Close"])
     golden = False
     if {"SMA_50", "SMA_200"}.issubset(lookback.columns) and len(lookback) >= 2:
         prev_50 = lookback["SMA_50"].shift(1)
@@ -126,7 +192,22 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         prev_sma50 = _opt_float(prev.get("SMA_50"))
         prev_close = _opt_float(prev.get("Close"))
         if prev_sma50 is not None and prev_close is not None:
-            crossed_50 = float(last["Close"]) > sma50 and prev_close <= prev_sma50
+            crossed_50 = last_close > sma50 and prev_close <= prev_sma50
+
+    wrsi = weekly_rsi(marked["Close"], cfg.rsi_period)
+    wrsi_valid = wrsi.dropna()
+    rsi_weekly = float(wrsi_valid.iloc[-1]) if not wrsi_valid.empty else None
+    rsi_weekly_prev = float(wrsi_valid.iloc[-2]) if len(wrsi_valid) > 1 else None
+
+    slope_up = sma_is_rising(marked["SMA_200"], cfg.sma200_slope_lookback)
+    distance_pct = ((last_close / sma200) - 1.0) * 100.0 if sma200 else None
+    reclaim = is_sma200_reclaim(
+        marked["Close"],
+        marked["SMA_200"],
+        washout_pct=cfg.sma200_washout_pct,
+        washout_lookback=cfg.sma200_washout_lookback,
+        recent_bars=cfg.sma200_reclaim_recent_bars,
+    )
 
     signal_ts = pd.Timestamp(marked.index[-1])
     return Snapshot(
@@ -135,13 +216,15 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         open=float(last["Open"]),
         high=float(last["High"]),
         low=float(last["Low"]),
-        close=float(last["Close"]),
+        close=last_close,
         volume=float(last["Volume"]),
         sma_20=_opt_float(last.get("SMA_20")),
         sma_50=sma50,
         sma_200=sma200,
         rsi_14=_opt_float(last.get("RSI_14")),
         rsi_14_prev=_opt_float(prev.get("RSI_14")) if prev is not None else None,
+        rsi_weekly=rsi_weekly,
+        rsi_weekly_prev=rsi_weekly_prev,
         atr_14=_opt_float(last.get("ATR_14")),
         volume_avg_20=_opt_float(last.get("VOL_AVG_20")),
         volume_multiple=_opt_float(last.get("VOL_MULT")),
@@ -150,6 +233,9 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         golden_cross_recent=golden,
         close_crossed_above_sma50=crossed_50,
         sma50_above_sma200=bool(sma50 is not None and sma200 is not None and sma50 > sma200),
+        sma_200_slope_up=slope_up,
+        sma_200_distance_pct=distance_pct,
+        sma_200_reclaim=reclaim,
     )
 
 

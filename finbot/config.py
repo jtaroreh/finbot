@@ -10,25 +10,31 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "watchlist.yaml"
 
+# Long-term accumulation defaults (IBM-first; engine still loops every ticker).
 _DEFAULTS: dict[str, Any] = {
     "enabled": True,
     "lookback_period": "2y",
     "earnings_blackout_days": 5,
     "rsi_period": 14,
-    "rsi_pullback_min": 30.0,
-    "rsi_pullback_max": 45.0,
-    "rsi_freefall": 25.0,
+    "rsi_weekly_max": 40.0,
+    "rsi_daily_extreme": 25.0,
     "atr_period": 14,
     "sma_fast": 20,
     "sma_mid": 50,
     "sma_slow": 200,
+    "sma200_slope_lookback": 20,
+    "sma200_proximity_pct": 3.0,
+    "sma200_undershoot_pct": 1.0,
+    "sma200_washout_pct": 5.0,
+    "sma200_washout_lookback": 60,
+    "sma200_reclaim_recent_bars": 10,
     "volume_avg_period": 20,
-    "volume_min_multiple": 1.2,
-    "support_atr_multiple": 0.5,
-    "stop_atr_multiple": 1.5,
-    "target_r_multiples": [2, 3],
-    "swing_left": 5,
-    "swing_right": 5,
+    "volume_min_multiple": 0.0,
+    "support_atr_multiple": 1.0,
+    "tranche_spacing_atr": 2.25,
+    "invalidation_atr_multiple": 3.0,
+    "swing_left": 10,
+    "swing_right": 10,
     "golden_cross_lookback": 10,
 }
 
@@ -40,18 +46,23 @@ class TickerConfig:
     lookback_period: str
     earnings_blackout_days: int
     rsi_period: int
-    rsi_pullback_min: float
-    rsi_pullback_max: float
-    rsi_freefall: float
+    rsi_weekly_max: float
+    rsi_daily_extreme: float
     atr_period: int
     sma_fast: int
     sma_mid: int
     sma_slow: int
+    sma200_slope_lookback: int
+    sma200_proximity_pct: float
+    sma200_undershoot_pct: float
+    sma200_washout_pct: float
+    sma200_washout_lookback: int
+    sma200_reclaim_recent_bars: int
     volume_avg_period: int
     volume_min_multiple: float
     support_atr_multiple: float
-    stop_atr_multiple: float
-    target_r_multiples: tuple[int, ...]
+    tranche_spacing_atr: float
+    invalidation_atr_multiple: float
     swing_left: int
     swing_right: int
     golden_cross_lookback: int
@@ -116,25 +127,29 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
 
 def _build_ticker(symbol: str, merged: Mapping[str, Any]) -> TickerConfig:
-    multiples = merged.get("target_r_multiples") or (2, 3)
     return TickerConfig(
         symbol=symbol.upper(),
         enabled=bool(merged.get("enabled", True)),
         lookback_period=str(merged["lookback_period"]),
         earnings_blackout_days=int(merged["earnings_blackout_days"]),
         rsi_period=int(merged["rsi_period"]),
-        rsi_pullback_min=float(merged["rsi_pullback_min"]),
-        rsi_pullback_max=float(merged["rsi_pullback_max"]),
-        rsi_freefall=float(merged["rsi_freefall"]),
+        rsi_weekly_max=float(merged["rsi_weekly_max"]),
+        rsi_daily_extreme=float(merged["rsi_daily_extreme"]),
         atr_period=int(merged["atr_period"]),
         sma_fast=int(merged["sma_fast"]),
         sma_mid=int(merged["sma_mid"]),
         sma_slow=int(merged["sma_slow"]),
+        sma200_slope_lookback=int(merged["sma200_slope_lookback"]),
+        sma200_proximity_pct=float(merged["sma200_proximity_pct"]),
+        sma200_undershoot_pct=float(merged["sma200_undershoot_pct"]),
+        sma200_washout_pct=float(merged["sma200_washout_pct"]),
+        sma200_washout_lookback=int(merged["sma200_washout_lookback"]),
+        sma200_reclaim_recent_bars=int(merged["sma200_reclaim_recent_bars"]),
         volume_avg_period=int(merged["volume_avg_period"]),
         volume_min_multiple=float(merged["volume_min_multiple"]),
         support_atr_multiple=float(merged["support_atr_multiple"]),
-        stop_atr_multiple=float(merged["stop_atr_multiple"]),
-        target_r_multiples=tuple(int(x) for x in multiples),
+        tranche_spacing_atr=float(merged["tranche_spacing_atr"]),
+        invalidation_atr_multiple=float(merged["invalidation_atr_multiple"]),
         swing_left=int(merged["swing_left"]),
         swing_right=int(merged["swing_right"]),
         golden_cross_lookback=int(merged["golden_cross_lookback"]),

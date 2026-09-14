@@ -69,7 +69,7 @@ def test_webhook_skipped_on_dry_run_even_with_env(monkeypatch: pytest.MonkeyPatc
 
 
 def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch):
-    snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0)
+    snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0, rsi_weekly=70.0)
     result = evaluate(snap, [date(2024, 7, 3)], default_ticker())
     assert not result.entry_triggered
     monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
@@ -83,9 +83,14 @@ def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch)
     assert body["signal"] == "NO_ENTRY"
     assert body["confluence"] is False
     assert body["gates"]["pullback"]["passed"] is False
-    assert body["stop"] == 168.0
-    assert body["target_2r"] == 177.0
-    assert body["target_3r"] == 180.0
+    assert body["thesis"] == "long_term_accumulation"
+    assert body["next_tranche"] == pytest.approx(171.0 - 2.25 * 2.0)
+    assert body["tranche_spacing_atr"] == 2.25
+    assert body["invalidation_level"] == 168.5
+    assert "invalidation_hint" in body
+    assert "stop" not in body
+    assert "target_2r" not in body
+    assert "target_3r" not in body
     assert "issue_url" not in body
 
 
@@ -107,13 +112,20 @@ def test_webhook_posts_json_with_bearer_when_env_set(monkeypatch: pytest.MonkeyP
     assert body["ticker"] == "IBM"
     assert body["signal"] == "ENTRY"
     assert body["confluence"] is True
+    assert body["thesis"] == "long_term_accumulation"
     assert body["signal_date"] == "2024-06-03"
     assert body["entry"] == 171.0
-    assert body["stop"] == 168.0
-    assert body["target_2r"] == 177.0
-    assert body["target_3r"] == 180.0
+    assert body["next_tranche"] == pytest.approx(171.0 - 2.25 * 2.0)
+    assert body["tranche_spacing_atr"] == 2.25
+    assert body["invalidation_level"] == 168.5
+    assert "1.5" in body["invalidation_hint"]
+    assert "stop" not in body
+    assert "target_2r" not in body
+    assert "target_3r" not in body
     assert body["gates"]["trend"]["passed"] is True
     assert body["indicators"]["rsi_14"] == 38.0
+    assert body["indicators"]["rsi_weekly"] == 36.0
+    assert body["indicators"]["sma_200_slope_up"] is True
     assert body["earnings"]["next"] == "2024-07-03"
     assert body["issue_url"] == "https://github.com/jtaroreh/finbot/issues/1"
 
@@ -165,10 +177,10 @@ def test_dry_run_plan_says_webhook_would_send_when_secrets_exist(monkeypatch: py
     assert "Webhook: would POST IBM snapshot every run" in plan
     assert "signal=ENTRY" in plan
     assert "confluence=true" in plan
-    assert "Issue: would create [ENTRY] IBM 2024-06-03" in plan
+    assert "Issue: would create [ACCUMULATION] IBM 2024-06-03" in plan
 
     fail = evaluate(
-        _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0),
+        _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0, rsi_weekly=70.0),
         [date(2024, 7, 3)],
         default_ticker(),
     )
@@ -177,7 +189,9 @@ def test_dry_run_plan_says_webhook_would_send_when_secrets_exist(monkeypatch: py
     assert "signal=NO_ENTRY" in fail_plan
     assert "confluence=false" in fail_plan
     assert "Issue: skipped (technical confluence did not pass)" in fail_plan
-    assert "| Suggested Target 2:1 |" in format_report(fail)
+    fail_report = format_report(fail)
+    assert "| Next tranche (2.25× ATR below) |" in fail_report
+    assert "Target 2:1" not in fail_report
 
 
 def test_alert_payload_omits_issue_url_when_missing():
@@ -186,16 +200,19 @@ def test_alert_payload_omits_issue_url_when_missing():
     assert "issue_url" not in body
     assert body["signal"] == "ENTRY"
     assert body["confluence"] is True
+    assert body["thesis"] == "long_term_accumulation"
     assert set(body["gates"]) >= {"earnings", "trend", "pullback", "support", "volume"}
 
 
 def test_alert_payload_no_entry_keeps_suggested_levels():
-    snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0)
+    snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0, rsi_weekly=70.0)
     result = evaluate(snap, [date(2024, 7, 3)], default_ticker())
     body = alert_payload(result)
     assert body["signal"] == "NO_ENTRY"
     assert body["confluence"] is False
     assert body["entry"] == 171.0
-    assert body["stop"] == 168.0
+    assert body["next_tranche"] == pytest.approx(171.0 - 2.25 * 2.0)
+    assert body["tranche_spacing_atr"] == 2.25
+    assert "stop" not in body
     assert body["gates"]["pullback"]["passed"] is False
     assert body["earnings"]["blackout_passed"] is True

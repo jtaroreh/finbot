@@ -1,4 +1,4 @@
-"""CLI: scan watchlist, print markdown, Issue on ENTRY, webhook every successful scan."""
+"""CLI: scan watchlist for long-term accumulation / buy-tranche confluence."""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ logger = logging.getLogger("finbot")
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m finbot.cli",
-        description="Scan watchlist tickers for a high-confluence long entry.",
+        description="Scan watchlist tickers for a long-term accumulation buy-tranche.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print markdown + webhook JSON; do not create an Issue or POST. "
-        "Webhook would be sent every run when secrets exist; Issue only on ENTRY.",
+        "Webhook would be sent every run when secrets exist; Issue only on accumulation confluence.",
     )
     parser.add_argument(
         "--config",

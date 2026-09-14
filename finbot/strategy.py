@@ -1,4 +1,9 @@
-"""Confluence gates, earnings blackout, and trade levels."""
+"""Confluence gates, earnings blackout, and accumulation tranche metadata.
+
+This is a long-term accumulation / buy-tranche scanner, not a swing-entry system.
+2R/3R targets are not part of the entry decision or the Issue plan. ATR is used
+for suggested tranche spacing and wide invalidation context only.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +23,13 @@ class GateResult:
 
 @dataclass(frozen=True)
 class Levels:
+    """Buy-tranche metadata — not a swing stop/target plan."""
+
     entry: float
-    stop: float
-    risk: float
-    targets: tuple[tuple[int, float], ...]
+    next_tranche: float
+    tranche_spacing_atr: float
+    invalidation_level: float | None
+    invalidation_hint: str
 
 
 @dataclass(frozen=True)
@@ -50,7 +58,7 @@ def evaluate(
     next_earnings = _next_earnings(snapshot.signal_date, earnings_dates)
     gates = (
         _earnings_gate(snapshot.signal_date, earnings_dates, cfg),
-        _trend_gate(snapshot),
+        _trend_gate(snapshot, cfg),
         _pullback_gate(snapshot, cfg),
         _support_gate(snapshot, cfg),
         _volume_gate(snapshot, cfg),
@@ -76,10 +84,13 @@ def evaluate(
 def format_report(result: ScanResult) -> str:
     snap = result.snapshot
     marker = issue_marker(result.ticker, result.signal_date)
+    slope = "up" if snap.sma_200_slope_up else "down/flat"
+    dist = snap.sma_200_distance_pct
     lines = [
         f"<!-- {marker} -->",
         f"# {result.ticker} {result.signal_date.isoformat()}",
         "",
+        "**Setup:** long-term accumulation / buy tranche (not a swing trade)",
         f"**Status:** {result.summary}",
         "",
         "| Field | Value |",
@@ -96,20 +107,24 @@ def format_report(result: ScanResult) -> str:
         f"| SMA 20 | {_num(snap.sma_20)} |",
         f"| SMA 50 | {_num(snap.sma_50)} |",
         f"| SMA 200 | {_num(snap.sma_200)} |",
-        f"| RSI 14 | {_num(snap.rsi_14)} |",
+        f"| SMA 200 slope | {slope} |",
+        f"| Distance vs SMA 200 | {_pct(dist)} |",
+        f"| SMA 200 reclaim | {'yes' if snap.sma_200_reclaim else 'no'} |",
+        f"| Daily RSI 14 | {_num(snap.rsi_14)} |",
+        f"| Weekly RSI 14 | {_num(snap.rsi_weekly)} |",
         f"| ATR 14 | {_num(snap.atr_14)} |",
-        f"| Swing support | {_num(snap.swing_support)} |",
-        f"| Swing resistance | {_num(snap.swing_resistance)} |",
+        f"| Structural swing support | {_num(snap.swing_support)} |",
+        f"| Structural swing resistance | {_num(snap.swing_resistance)} |",
         f"| Next earnings | {result.next_earnings.isoformat() if result.next_earnings else 'n/a'} |",
         f"| Confluence | {'PASS' if result.entry_triggered else 'FAIL'} |",
     ]
     if result.levels is not None:
-        prefix = "" if result.entry_triggered else "Suggested "
-        stop_mult = result.levels.risk / snap.atr_14 if snap.atr_14 else 0.0
-        lines.append(f"| {prefix}Stop ({stop_mult:g}× ATR) | {_num(result.levels.stop)} |")
-        lines.append(f"| {prefix}Risk (entry − stop) | {_num(result.levels.risk)} |")
-        for multiple, price in result.levels.targets:
-            lines.append(f"| {prefix}Target {multiple}:1 | {_num(price)} |")
+        lines.append(
+            f"| Next tranche ({result.levels.tranche_spacing_atr:g}× ATR below) | "
+            f"{_num(result.levels.next_tranche)} |"
+        )
+        lines.append(f"| Invalidation level | {_num(result.levels.invalidation_level)} |")
+        lines.append(f"| Invalidation hint | {result.levels.invalidation_hint} |")
     lines.extend(["", "## Gate states", "", "| Gate | Pass | Detail |", "|---|---|---|"])
     for gate in result.gates:
         lines.append(f"| {gate.name} | {'PASS' if gate.passed else 'FAIL'} | {gate.detail} |")
@@ -117,23 +132,47 @@ def format_report(result: ScanResult) -> str:
 
 
 def issue_title(ticker: str, signal_date: date) -> str:
-    return f"[ENTRY] {ticker} {signal_date.isoformat()}"
+    return f"[ACCUMULATION] {ticker} {signal_date.isoformat()}"
 
 
 def issue_marker(ticker: str, signal_date: date) -> str:
-    return f"finbot-entry:{ticker}:{signal_date.isoformat()}"
+    return f"finbot-accumulation:{ticker}:{signal_date.isoformat()}"
 
 
 def _levels(snapshot: Snapshot, cfg: TickerConfig) -> Levels | None:
     if snapshot.atr_14 is None or snapshot.atr_14 <= 0:
         return None
     entry = snapshot.close
-    stop = entry - cfg.stop_atr_multiple * snapshot.atr_14
-    risk = entry - stop
-    if risk <= 0:
-        return None
-    targets = tuple((multiple, entry + multiple * risk) for multiple in cfg.target_r_multiples)
-    return Levels(entry=entry, stop=stop, risk=risk, targets=targets)
+    spacing = cfg.tranche_spacing_atr
+    next_tranche = entry - spacing * snapshot.atr_14
+    invalidation_level: float | None
+    if snapshot.sma_200 is not None:
+        invalidation_level = snapshot.sma_200
+    elif cfg.invalidation_atr_multiple > 0:
+        invalidation_level = entry - cfg.invalidation_atr_multiple * snapshot.atr_14
+    else:
+        invalidation_level = None
+    hint = (
+        f"Not a swing take-profit plan. Suggested next buy tranche ~{spacing:g}× ATR "
+        f"below entry ({_num(next_tranche)})."
+    )
+    if snapshot.sma_200 is not None:
+        hint += (
+            f" Wide invalidation context: daily close sustainably below SMA 200 "
+            f"({_num(snapshot.sma_200)}), not a 1.5× ATR stop."
+        )
+    elif invalidation_level is not None:
+        hint += (
+            f" Wide invalidation context: ~{cfg.invalidation_atr_multiple:g}× ATR "
+            f"below entry ({_num(invalidation_level)})."
+        )
+    return Levels(
+        entry=entry,
+        next_tranche=next_tranche,
+        tranche_spacing_atr=spacing,
+        invalidation_level=invalidation_level,
+        invalidation_hint=hint,
+    )
 
 
 def _earnings_gate(signal_date: date, earnings_dates: list[date], cfg: TickerConfig) -> GateResult:
@@ -167,88 +206,137 @@ def _earnings_gate(signal_date: date, earnings_dates: list[date], cfg: TickerCon
     )
 
 
-def _trend_gate(snapshot: Snapshot) -> GateResult:
+def _trend_gate(snapshot: Snapshot, cfg: TickerConfig) -> GateResult:
+    """SMA 200 is the primary accumulation filter.
+
+    Pass if either:
+
+    (A) Pullback to the institutional 200 SMA: the 200 is upward-sloping
+        (SMA200[t] > SMA200[t - sma200_slope_lookback]) and close is inside
+        [-sma200_undershoot_pct, +sma200_proximity_pct] percent of it
+        (default −1% to +3%). Sitting on the average (0%) counts.
+
+    (B) Reclaim after a deep washout: close is back above the 200 SMA, at least
+        one bar in sma200_washout_lookback was >= sma200_washout_pct below it,
+        and price traded at or below the 200 within sma200_reclaim_recent_bars.
+
+    Golden-cross / 50 SMA continuation paths are not a trend pass.
+    """
     if snapshot.sma_200 is None:
         return GateResult("trend", False, "SMA 200 unavailable")
-    if snapshot.close > snapshot.sma_200:
+
+    dist = snapshot.sma_200_distance_pct
+    if dist is None:
+        dist = (snapshot.close / snapshot.sma_200 - 1.0) * 100.0
+    in_band = -cfg.sma200_undershoot_pct <= dist <= cfg.sma200_proximity_pct
+
+    if snapshot.sma_200_slope_up and in_band:
         return GateResult(
             "trend",
             True,
-            f"Close {_num(snapshot.close)} above SMA 200 {_num(snapshot.sma_200)}",
+            (
+                f"Upward-sloping SMA 200; close {_num(dist)}% from "
+                f"{_num(snapshot.sma_200)} (band "
+                f"-{cfg.sma200_undershoot_pct:g}% to +{cfg.sma200_proximity_pct:g}%)"
+            ),
         )
-    if snapshot.golden_cross_recent and snapshot.sma_50 is not None and snapshot.close > snapshot.sma_50:
+
+    if snapshot.sma_200_reclaim and snapshot.close > snapshot.sma_200:
         return GateResult(
             "trend",
             True,
-            "Constructive 50/200 golden cross; close above SMA 50",
+            (
+                f"Reclaiming SMA 200 after washout; close {_num(snapshot.close)} "
+                f"vs SMA 200 {_num(snapshot.sma_200)}"
+            ),
         )
-    if snapshot.close_crossed_above_sma50 and snapshot.sma50_above_sma200:
+
+    if not snapshot.sma_200_slope_up and in_band:
         return GateResult(
             "trend",
-            True,
-            "Close crossed above SMA 50 with SMA 50 above SMA 200",
+            False,
+            (
+                f"Close {_num(dist)}% from SMA 200 {_num(snapshot.sma_200)} "
+                "but the 200 is not upward-sloping and no washout reclaim"
+            ),
         )
     return GateResult(
         "trend",
         False,
         (
-            f"Close {_num(snapshot.close)} not above SMA 200 {_num(snapshot.sma_200)} "
-            "and no constructive 50 SMA cross"
+            f"Close {_num(snapshot.close)} is {_num(dist)}% from SMA 200 "
+            f"{_num(snapshot.sma_200)} (need −{cfg.sma200_undershoot_pct:g}% to "
+            f"+{cfg.sma200_proximity_pct:g}% on a rising 200, or a washout reclaim)"
         ),
     )
 
 
 def _pullback_gate(snapshot: Snapshot, cfg: TickerConfig) -> GateResult:
-    if snapshot.rsi_14 is None:
-        return GateResult("pullback", False, "RSI 14 unavailable")
-    rsi = snapshot.rsi_14
-    prev = snapshot.rsi_14_prev
-    declining = prev is not None and rsi < prev
-    if rsi < cfg.rsi_freefall and declining:
-        return GateResult(
-            "pullback",
-            False,
-            f"RSI {_num(rsi)} free-falling below {cfg.rsi_freefall} (prev {_num(prev)})",
-        )
-    if cfg.rsi_pullback_min <= rsi <= cfg.rsi_pullback_max:
+    """Cyclical oversold: weekly RSI below rsi_weekly_max (primary), or daily RSI extreme."""
+    weekly = snapshot.rsi_weekly
+    daily = snapshot.rsi_14
+    weekly_on = cfg.rsi_weekly_max > 0
+    daily_on = cfg.rsi_daily_extreme > 0
+    weekly_ok = weekly_on and weekly is not None and weekly < cfg.rsi_weekly_max
+    daily_ok = daily_on and daily is not None and daily < cfg.rsi_daily_extreme
+
+    if weekly_ok:
         return GateResult(
             "pullback",
             True,
-            f"RSI {_num(rsi)} in {cfg.rsi_pullback_min:g}–{cfg.rsi_pullback_max:g} zone",
+            (
+                f"Weekly RSI {_num(weekly)} < {cfg.rsi_weekly_max:g} "
+                "(cyclical accumulation zone)"
+            ),
         )
-    if (
-        cfg.rsi_freefall <= rsi < cfg.rsi_pullback_min
-        and prev is not None
-        and rsi >= prev
-    ):
+    if daily_ok:
         return GateResult(
             "pullback",
-            False,
-            f"RSI {_num(rsi)} stabilizing but still below {cfg.rsi_pullback_min:g}",
+            True,
+            (
+                f"Daily RSI {_num(daily)} < {cfg.rsi_daily_extreme:g} "
+                f"(extreme washout); weekly RSI {_num(weekly)}"
+            ),
         )
+    if weekly is None and daily is None:
+        return GateResult("pullback", False, "Weekly and daily RSI unavailable")
     return GateResult(
         "pullback",
         False,
-        f"RSI {_num(rsi)} outside {cfg.rsi_pullback_min:g}–{cfg.rsi_pullback_max:g} pullback zone",
+        (
+            f"Weekly RSI {_num(weekly)} not < {cfg.rsi_weekly_max:g} and "
+            f"daily RSI {_num(daily)} not < {cfg.rsi_daily_extreme:g}"
+        ),
     )
 
 
 def _support_gate(snapshot: Snapshot, cfg: TickerConfig) -> GateResult:
+    """Structural support: 10/10 swing low, SMA 200 (percentage band or ATR), or SMA 50."""
     if snapshot.atr_14 is None or snapshot.atr_14 <= 0:
         return GateResult("support", False, "ATR 14 unavailable")
     tolerance = cfg.support_atr_multiple * snapshot.atr_14
+
+    if snapshot.sma_200 is not None:
+        dist_pct = abs(snapshot.close / snapshot.sma_200 - 1.0) * 100.0
+        band = max(cfg.sma200_proximity_pct, cfg.sma200_undershoot_pct)
+        if dist_pct <= band and snapshot.close >= snapshot.sma_200 * (1 - cfg.sma200_undershoot_pct / 100.0):
+            return GateResult(
+                "support",
+                True,
+                (
+                    f"At institutional SMA 200 {_num(snapshot.sma_200)} "
+                    f"(distance {_num(dist_pct)}%)"
+                ),
+            )
+
     candidates: list[tuple[str, float]] = []
     if snapshot.swing_support is not None:
-        candidates.append(("swing support", snapshot.swing_support))
-    for label, value in (
-        ("SMA 20", snapshot.sma_20),
-        ("SMA 50", snapshot.sma_50),
-        ("SMA 200", snapshot.sma_200),
-    ):
+        candidates.append(("structural swing support", snapshot.swing_support))
+    for label, value in (("SMA 50", snapshot.sma_50), ("SMA 200", snapshot.sma_200)):
         if value is not None:
             candidates.append((label, value))
     if not candidates:
-        return GateResult("support", False, "No support references available")
+        return GateResult("support", False, "No structural support references available")
 
     best: tuple[str, float, float] | None = None
     for label, level in candidates:
@@ -272,15 +360,36 @@ def _support_gate(snapshot: Snapshot, cfg: TickerConfig) -> GateResult:
         False,
         (
             f"Nearest {best[0]} {_num(best[1])} is {_num(best[2])} away "
-            f"(need ≤ {_num(tolerance)} = {cfg.support_atr_multiple:g}× ATR)"
+            f"(need ≤ {_num(tolerance)} = {cfg.support_atr_multiple:g}× ATR "
+            f"or within {cfg.sma200_proximity_pct:g}% of SMA 200)"
         ),
     )
 
 
 def _volume_gate(snapshot: Snapshot, cfg: TickerConfig) -> GateResult:
-    if snapshot.volume_avg_20 is None or snapshot.volume_avg_20 <= 0:
+    """Volume expansion is optional. Default 0 disables the 1.2× swing requirement."""
+    multiple = snapshot.volume_multiple
+    if multiple is None and snapshot.volume_avg_20 not in (None, 0):
+        multiple = snapshot.volume / snapshot.volume_avg_20
+
+    if cfg.volume_min_multiple <= 0:
+        if multiple is None:
+            return GateResult(
+                "volume",
+                True,
+                "Volume expansion not required for accumulation",
+            )
+        return GateResult(
+            "volume",
+            True,
+            (
+                f"Volume expansion not required for accumulation; "
+                f"actual {_num(multiple)}× 20-day average"
+            ),
+        )
+
+    if snapshot.volume_avg_20 is None or snapshot.volume_avg_20 <= 0 or multiple is None:
         return GateResult("volume", False, "20-day average volume unavailable")
-    multiple = snapshot.volume / snapshot.volume_avg_20
     if multiple >= cfg.volume_min_multiple:
         return GateResult(
             "volume",
@@ -314,6 +423,12 @@ def _num(value: float | None, digits: int = 2) -> str:
     if value is None:
         return "n/a"
     return f"{value:.{digits}f}"
+
+
+def _pct(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}%"
 
 
 def _int(value: float | None) -> str:
