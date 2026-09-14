@@ -1,26 +1,41 @@
-# Watchlist and scanner defaults.
-# Per-ticker keys override `defaults`. Add more tickers under `tickers:` later.
+# Watchlist and scanner defaults — long-term accumulation / buy-tranche
+# (not a short-term swing system). Per-ticker keys override `defaults`.
 
 defaults:
   enabled: true
   lookback_period: "2y"
   earnings_blackout_days: 5
+
+  # RSI: weekly (resampled from daily) is primary; daily extreme is the alternate.
   rsi_period: 14
-  rsi_pullback_min: 30.0
-  rsi_pullback_max: 45.0
-  rsi_freefall: 25.0
+  rsi_weekly_max: 40.0          # pass when weekly RSI is in the cyclical/oversold zone
+  rsi_daily_extreme: 25.0       # or pass when daily RSI is a washout extreme
+
   atr_period: 14
   sma_fast: 20
   sma_mid: 50
   sma_slow: 200
+
+  # SMA 200 accumulation filter (see strategy._trend_gate):
+  # (A) upward-sloping 200 and close within [-undershoot, +proximity] % of it
+  # (B) reclaim after a deep washout
+  sma200_slope_lookback: 20     # SMA200[t] > SMA200[t-20] counts as upward-sloping
+  sma200_proximity_pct: 3.0     # max % above the 200 to still count as a pullback
+  sma200_undershoot_pct: 1.0    # max % below the 200 still allowed on a tag
+  sma200_washout_pct: 5.0       # min % below the 200 that counts as a washout
+  sma200_washout_lookback: 60   # bars searched for that washout
+  sma200_reclaim_recent_bars: 10  # must have been at/below the 200 this recently
+
   volume_avg_period: 20
-  volume_min_multiple: 1.2
-  support_atr_multiple: 0.5
-  stop_atr_multiple: 1.5
-  target_r_multiples: [2, 3]
-  swing_left: 5
-  swing_right: 5
-  golden_cross_lookback: 10
+  volume_min_multiple: 0.0      # 0 = off; quiet accumulation does not need 1.2× expansion
+
+  support_atr_multiple: 1.0     # structural swing / SMA 200 / SMA 50 tolerance
+  tranche_spacing_atr: 2.25     # suggested next-tranche distance below entry (2.0–2.5× ATR)
+  invalidation_atr_multiple: 3.0  # wide context only; not a 1.5× ATR swing stop
+
+  swing_left: 10                # multi-month structural pivots, not 5-bar chop
+  swing_right: 10
+  golden_cross_lookback: 10     # informational snapshot only; not a trend pass
 
 tickers:
   IBM: {}

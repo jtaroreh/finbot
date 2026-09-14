@@ -85,18 +85,20 @@ def notify(result: ScanResult, dry_run: bool = False) -> str | None:
 
 def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str, Any]:
     snap = result.snapshot
-    targets = dict(result.levels.targets) if result.levels is not None else {}
+    levels = result.levels
     confluence = bool(result.entry_triggered)
     payload: dict[str, Any] = {
         "ticker": result.ticker,
         "signal": "ENTRY" if confluence else "NO_ENTRY",
         "confluence": confluence,
+        "thesis": "long_term_accumulation",
         "signal_date": result.signal_date.isoformat(),
         "summary": result.summary,
-        "entry": _json_num(result.levels.entry if result.levels else snap.close),
-        "stop": _json_num(result.levels.stop if result.levels else None),
-        "target_2r": _json_num(targets.get(2)),
-        "target_3r": _json_num(targets.get(3)),
+        "entry": _json_num(levels.entry if levels else snap.close),
+        "next_tranche": _json_num(levels.next_tranche if levels else None),
+        "tranche_spacing_atr": _json_num(levels.tranche_spacing_atr if levels else None),
+        "invalidation_level": _json_num(levels.invalidation_level if levels else None),
+        "invalidation_hint": levels.invalidation_hint if levels else None,
         "gates": {
             gate.name: {"passed": gate.passed, "detail": gate.detail} for gate in result.gates
         },
@@ -111,7 +113,11 @@ def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str,
             "sma_20": _json_num(snap.sma_20),
             "sma_50": _json_num(snap.sma_50),
             "sma_200": _json_num(snap.sma_200),
+            "sma_200_slope_up": snap.sma_200_slope_up,
+            "sma_200_distance_pct": _json_num(snap.sma_200_distance_pct),
+            "sma_200_reclaim": snap.sma_200_reclaim,
             "rsi_14": _json_num(snap.rsi_14),
+            "rsi_weekly": _json_num(snap.rsi_weekly),
             "atr_14": _json_num(snap.atr_14),
             "swing_support": _json_num(snap.swing_support),
             "swing_resistance": _json_num(snap.swing_resistance),
@@ -150,9 +156,12 @@ def format_notify_plan(result: ScanResult, dry_run: bool = False) -> str:
     if confluence:
         title = issue_title(result.ticker, result.signal_date)
         if dry_run:
-            issue_line = f"Issue: would create {title} (technical ENTRY) — not created in dry-run"
+            issue_line = (
+                f"Issue: would create {title} (technical accumulation confluence) "
+                "— not created in dry-run"
+            )
         else:
-            issue_line = f"Issue: create {title} (technical ENTRY)"
+            issue_line = f"Issue: create {title} (technical accumulation confluence)"
     else:
         issue_line = "Issue: skipped (technical confluence did not pass)"
     return f"{webhook_line}\n{issue_line}\n"
@@ -262,7 +271,7 @@ def _ensure_labels(names: list[str]) -> None:
     repo = _repo()
     colors = {ENTRY_LABEL: "1f883d", names[-1]: "0b6e99"}
     descriptions = {
-        ENTRY_LABEL: "Finbot high-confluence long entry snapshot",
+        ENTRY_LABEL: "Finbot long-term accumulation buy-tranche snapshot",
     }
     for name in names:
         response = _request(

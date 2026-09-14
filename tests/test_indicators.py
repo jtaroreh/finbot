@@ -10,12 +10,16 @@ from finbot.indicators import (
     add_indicators,
     atr,
     build_snapshot,
+    is_sma200_reclaim,
     rsi,
     sma,
+    sma_is_rising,
     swing_highs,
     swing_lows,
     true_range,
     volume_average_prior,
+    weekly_close,
+    weekly_rsi,
 )
 
 
@@ -79,6 +83,41 @@ def test_swing_low_and_high_at_clear_fractals():
     assert lows.iloc[11] == 2.0
 
 
+def test_weekly_rsi_resamples_daily_closes():
+    idx = pd.date_range("2023-01-06", periods=120, freq="B")  # Fridays included
+    close = pd.Series(np.linspace(100.0, 40.0, 120), index=idx)
+    weekly = weekly_close(close)
+    assert len(weekly) < len(close)
+    assert weekly.iloc[-1] == float(close.iloc[-1])
+    values = weekly_rsi(close, 14)
+    warmed = values.dropna()
+    assert not warmed.empty
+    assert 0.0 <= warmed.iloc[-1] <= 40.0
+
+
+def test_sma_is_rising_compares_lookback():
+    series = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+    assert sma_is_rising(series, 2)
+    assert not sma_is_rising(pd.Series([5.0, 4.0, 3.0, 2.0, 1.0]), 2)
+    assert not sma_is_rising(series, 20)
+
+
+def test_sma200_reclaim_requires_washout_and_recent_below():
+    n = 80
+    close = pd.Series([100.0] * n)
+    sma200 = pd.Series([100.0] * n)
+    close.iloc[-30:-2] = 90.0  # 10% washout, still below until last bar
+    close.iloc[-1] = 101.0
+    assert is_sma200_reclaim(
+        close, sma200, washout_pct=5.0, washout_lookback=60, recent_bars=10
+    )
+    close_no_reclaim = close.copy()
+    close_no_reclaim.iloc[-1] = 99.0
+    assert not is_sma200_reclaim(
+        close_no_reclaim, sma200, washout_pct=5.0, washout_lookback=60, recent_bars=10
+    )
+
+
 def test_add_indicators_and_snapshot_use_last_bar():
     n = 250
     idx = pd.date_range("2023-01-03", periods=n, freq="B")
@@ -103,13 +142,23 @@ def test_add_indicators_and_snapshot_use_last_bar():
     assert snap.sma_200 is not None
     assert snap.atr_14 is not None
     assert snap.volume_multiple is not None
+    assert snap.rsi_weekly is not None
+    assert snap.sma_200_distance_pct is not None
+    assert isinstance(snap.sma_200_slope_up, bool)
+    assert isinstance(snap.sma_200_reclaim, bool)
 
 
-def test_watchlist_loads_ibm_defaults():
+def test_watchlist_loads_ibm_accumulation_defaults():
     config = load_config()
     ibm = config.ticker("IBM")
     assert ibm.earnings_blackout_days == 5
-    assert ibm.volume_min_multiple == 1.2
-    assert ibm.stop_atr_multiple == 1.5
-    assert ibm.target_r_multiples == (2, 3)
+    assert ibm.volume_min_multiple == 0.0
+    assert ibm.swing_left == 10
+    assert ibm.swing_right == 10
+    assert ibm.rsi_weekly_max == 40.0
+    assert ibm.rsi_daily_extreme == 25.0
+    assert ibm.sma200_proximity_pct == 3.0
+    assert ibm.sma200_undershoot_pct == 1.0
+    assert ibm.tranche_spacing_atr == 2.25
+    assert ibm.invalidation_atr_multiple == 3.0
     assert [t.symbol for t in config.tickers] == ["IBM"]
