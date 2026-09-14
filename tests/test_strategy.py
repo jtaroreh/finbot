@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from finbot.config import default_ticker
+from finbot.data import _extract_dates
 from finbot.indicators import Snapshot
 from finbot.strategy import evaluate, format_report, issue_title
 
@@ -161,7 +162,9 @@ def test_support_can_use_key_moving_average():
     cfg = default_ticker()
     snap = _passing_snapshot(
         swing_support=140.0,
+        sma_20=140.0,
         sma_50=170.8,
+        sma_200=120.0,
         low=170.5,
         close=171.0,
         atr_14=2.0,
@@ -185,3 +188,13 @@ def test_volume_gate_uses_configured_multiple():
         cfg,
     )
     assert ok.gate("volume").passed
+
+
+def test_calendar_extracts_earnings_not_dividend_dates():
+    calendar = {
+        "Dividend Date": date(2026, 9, 10),
+        "Ex-Dividend Date": date(2026, 8, 10),
+        "Earnings Date": [date(2026, 10, 21)],
+        "Earnings Average": 2.88,
+    }
+    assert _extract_dates(calendar) == [date(2026, 10, 21)]

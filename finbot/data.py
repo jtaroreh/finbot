@@ -45,7 +45,8 @@ def fetch_earnings_dates(symbol: str) -> list[date]:
         logger.warning("%s: get_earnings_dates failed: %s", symbol, exc)
 
     try:
-        found.update(_extract_dates(getattr(ticker, "calendar", None)))
+        calendar = ticker.get_calendar() if hasattr(ticker, "get_calendar") else getattr(ticker, "calendar", None)
+        found.update(_extract_dates(calendar))
     except Exception as exc:  # noqa: BLE001
         logger.warning("%s: calendar earnings lookup failed: %s", symbol, exc)
 
@@ -79,42 +80,45 @@ def _normalize_ohlcv(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _extract_dates(value: Any) -> list[date]:
+    """Pull earnings dates only — ignore dividend and other event dates."""
     if value is None:
         return []
 
     if isinstance(value, pd.DataFrame):
         dates = list(_iter_datelike(value.index))
         for column in value.columns:
-            name = str(column).lower()
-            if "earn" in name or "date" in name:
+            if _is_earnings_label(column):
                 dates.extend(_iter_datelike(value[column]))
+        for idx, row in value.iterrows():
+            if _is_earnings_label(idx):
+                dates.extend(_iter_datelike(row.tolist()))
         return dates
 
     if isinstance(value, pd.Series):
-        name = str(value.name).lower() if value.name is not None else ""
         dates = list(_iter_datelike(value.index))
-        if "earn" in name or "date" in name:
+        if _is_earnings_label(value.name):
             dates.extend(_iter_datelike(value))
-        elif value.index.dtype == object or "date" in str(value.index.dtype):
-            dates.extend(_iter_datelike(value))
-        else:
-            dates.extend(_iter_datelike(value))
+        for idx, item in value.items():
+            if _is_earnings_label(idx):
+                dates.extend(_iter_datelike([idx, item]))
         return dates
 
     if isinstance(value, dict):
         dates: list[date] = []
         for key, item in value.items():
-            key_l = str(key).lower()
-            if "earn" in key_l or "date" in key_l:
+            if _is_earnings_label(key):
                 dates.extend(_extract_dates(item))
-            else:
-                dates.extend(_iter_datelike([item] if not isinstance(item, (list, tuple)) else item))
         return dates
 
     if isinstance(value, (list, tuple, set)):
         return list(_iter_datelike(value))
 
     return list(_iter_datelike([value]))
+
+
+def _is_earnings_label(label: Any) -> bool:
+    text = str(label).lower()
+    return "earn" in text and "date" in text
 
 
 def _iter_datelike(values: Iterable[Any]) -> Iterable[date]:
@@ -129,6 +133,8 @@ def _as_date(value: Any) -> date | None:
         return None
     if isinstance(value, date) and not isinstance(value, datetime):
         return value
+    if isinstance(value, (int, float, bool)):
+        return None
     try:
         ts = pd.Timestamp(value)
     except (ValueError, TypeError):
