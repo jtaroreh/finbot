@@ -1,6 +1,6 @@
 # finbot
 
-This repo is the **only scanner**. Grok Bot must not run its own yfinance scan. Finbot evaluates the watchlist after the US cash close, then uses a dual path:
+This repo is the **only scanner**. Grok Bot must not run its own yfinance scan. Finbot evaluates the watchlist on weekdays at 12:20pm America/Los_Angeles, then uses a dual path:
 
 1. **Daily webhook snapshot** — on every successful scan, POST the full ticker JSON (gates, indicators, earnings blackout, suggested levels) to a Grok Bot webhook so the Bot can make a holistic judgment. This happens for `ENTRY` and `NO_ENTRY`.
 2. **GitHub Issue only on technical confluence** — open one Issue only when the python gates all pass (`signal=ENTRY`, `confluence=true`). No Issue on `NO_ENTRY` days.
@@ -60,7 +60,7 @@ pytest
 
 `.github/workflows/daily_scan.yml` runs:
 
-- cron `30 21 * * 1-5` (weekdays ~21:30 UTC, after US cash close)
+- cron `20 19 * * 1-5` (weekdays 12:20pm America/Los_Angeles; PDT = 19:20 UTC. GitHub cron is UTC-only, so this is 11:20am PST in winter)
 - `workflow_dispatch` for a manual run
 
 The job checks out the repo, installs `requirements.txt`, and runs `python -m finbot.cli`. Permissions are `issues: write` and `contents: read`. The default `GITHUB_TOKEN` is enough to open Issues. This repo is public so Actions minutes are free.
