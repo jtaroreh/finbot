@@ -1,0 +1,26 @@
+# Watchlist and scanner defaults.
+# Per-ticker keys override `defaults`. Add more tickers under `tickers:` later.
+
+defaults:
+  enabled: true
+  lookback_period: "2y"
+  earnings_blackout_days: 5
+  rsi_period: 14
+  rsi_pullback_min: 30.0
+  rsi_pullback_max: 45.0
+  rsi_freefall: 25.0
+  atr_period: 14
+  sma_fast: 20
+  sma_mid: 50
+  sma_slow: 200
+  volume_avg_period: 20
+  volume_min_multiple: 1.2
+  support_atr_multiple: 0.5
+  stop_atr_multiple: 1.5
+  target_r_multiples: [2, 3]
+  swing_left: 5
+  swing_right: 5
+  golden_cross_lookback: 10
+
+tickers:
+  IBM: {}
