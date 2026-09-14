@@ -58,7 +58,7 @@ def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
 
 
 def notify(result: ScanResult, dry_run: bool = False) -> str | None:
-    """Create the Issue (if any), then POST the same alert to the Grok Bot webhook."""
+    """Issue only on technical ENTRY; webhook on every successful scan when secrets exist."""
     issue_url: str | None = None
     issue_error: NotifyError | None = None
     try:
@@ -86,10 +86,13 @@ def notify(result: ScanResult, dry_run: bool = False) -> str | None:
 def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str, Any]:
     snap = result.snapshot
     targets = dict(result.levels.targets) if result.levels is not None else {}
+    confluence = bool(result.entry_triggered)
     payload: dict[str, Any] = {
         "ticker": result.ticker,
-        "signal": "ENTRY" if result.entry_triggered else "NO_ENTRY",
+        "signal": "ENTRY" if confluence else "NO_ENTRY",
+        "confluence": confluence,
         "signal_date": result.signal_date.isoformat(),
+        "summary": result.summary,
         "entry": _json_num(result.levels.entry if result.levels else snap.close),
         "stop": _json_num(result.levels.stop if result.levels else None),
         "target_2r": _json_num(targets.get(2)),
@@ -124,17 +127,61 @@ def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str,
     return payload
 
 
+def format_notify_plan(result: ScanResult, dry_run: bool = False) -> str:
+    """Human-readable dual-path plan: daily webhook vs Issue-only-on-ENTRY."""
+    confluence = bool(result.entry_triggered)
+    signal = "ENTRY" if confluence else "NO_ENTRY"
+    url, secret = _webhook_credentials(result.ticker)
+    if url and secret:
+        if dry_run:
+            webhook_line = (
+                f"Webhook: would POST {result.ticker} snapshot every run "
+                f"(signal={signal}, confluence={str(confluence).lower()}) — not sent in dry-run"
+            )
+        else:
+            webhook_line = (
+                f"Webhook: POST {result.ticker} snapshot "
+                f"(signal={signal}, confluence={str(confluence).lower()})"
+            )
+    else:
+        webhook_line = (
+            f"Webhook: skipped ({WEBHOOK_URL_ENV} or {WEBHOOK_SECRET_ENV} unset)"
+        )
+    if confluence:
+        title = issue_title(result.ticker, result.signal_date)
+        if dry_run:
+            issue_line = f"Issue: would create {title} (technical ENTRY) — not created in dry-run"
+        else:
+            issue_line = f"Issue: create {title} (technical ENTRY)"
+    else:
+        issue_line = "Issue: skipped (technical confluence did not pass)"
+    return f"{webhook_line}\n{issue_line}\n"
+
+
 def maybe_post_webhook(
     result: ScanResult,
     issue_url: str | None = None,
     dry_run: bool = False,
 ) -> bool:
-    """POST one JSON alert per firing ticker. Skip quietly when secrets are missing."""
-    if not result.entry_triggered:
-        logger.info("%s %s: no entry — skipping webhook", result.ticker, result.signal_date)
-        return False
+    """POST one JSON snapshot per ticker every successful scan. Skip quietly when secrets are missing."""
     if dry_run:
-        logger.info("%s %s: dry-run — webhook not posted", result.ticker, result.signal_date)
+        url, secret = _webhook_credentials(result.ticker)
+        if url and secret:
+            logger.info(
+                "%s %s: dry-run — webhook would POST (signal=%s, confluence=%s)",
+                result.ticker,
+                result.signal_date,
+                "ENTRY" if result.entry_triggered else "NO_ENTRY",
+                str(bool(result.entry_triggered)).lower(),
+            )
+        else:
+            logger.info(
+                "%s %s: dry-run — webhook skipped (%s or %s unset)",
+                result.ticker,
+                result.signal_date,
+                WEBHOOK_URL_ENV,
+                WEBHOOK_SECRET_ENV,
+            )
         return False
 
     url, secret = _webhook_credentials(result.ticker)
@@ -159,7 +206,13 @@ def maybe_post_webhook(
         raise NotifyError(
             f"Grok Bot webhook failed ({response.status_code}): {response.text[:500]}"
         )
-    logger.info("%s %s: posted Grok Bot webhook", result.ticker, result.signal_date)
+    logger.info(
+        "%s %s: posted Grok Bot webhook (signal=%s, confluence=%s)",
+        result.ticker,
+        result.signal_date,
+        payload["signal"],
+        payload["confluence"],
+    )
     return True
 
 

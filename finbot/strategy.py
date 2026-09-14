@@ -56,7 +56,7 @@ def evaluate(
         _volume_gate(snapshot, cfg),
     )
     triggered = all(gate.passed for gate in gates)
-    levels = _levels(snapshot, cfg) if triggered else None
+    levels = _levels(snapshot, cfg)
     summary = "ENTRY" if triggered else "NO ENTRY"
     failed = [gate.name for gate in gates if not gate.passed]
     if failed:
@@ -101,13 +101,15 @@ def format_report(result: ScanResult) -> str:
         f"| Swing support | {_num(snap.swing_support)} |",
         f"| Swing resistance | {_num(snap.swing_resistance)} |",
         f"| Next earnings | {result.next_earnings.isoformat() if result.next_earnings else 'n/a'} |",
+        f"| Confluence | {'PASS' if result.entry_triggered else 'FAIL'} |",
     ]
     if result.levels is not None:
+        prefix = "" if result.entry_triggered else "Suggested "
         stop_mult = result.levels.risk / snap.atr_14 if snap.atr_14 else 0.0
-        lines.append(f"| Stop ({stop_mult:g}× ATR) | {_num(result.levels.stop)} |")
-        lines.append(f"| Risk (entry − stop) | {_num(result.levels.risk)} |")
+        lines.append(f"| {prefix}Stop ({stop_mult:g}× ATR) | {_num(result.levels.stop)} |")
+        lines.append(f"| {prefix}Risk (entry − stop) | {_num(result.levels.risk)} |")
         for multiple, price in result.levels.targets:
-            lines.append(f"| Target {multiple}:1 | {_num(price)} |")
+            lines.append(f"| {prefix}Target {multiple}:1 | {_num(price)} |")
     lines.extend(["", "## Gate states", "", "| Gate | Pass | Detail |", "|---|---|---|"])
     for gate in result.gates:
         lines.append(f"| {gate.name} | {'PASS' if gate.passed else 'FAIL'} | {gate.detail} |")

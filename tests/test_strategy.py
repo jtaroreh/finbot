@@ -61,6 +61,7 @@ def test_all_gates_pass_emits_entry_and_levels():
     assert "| Close / entry |" in markdown
     assert "| Target 2:1 |" in markdown
     assert "| Target 3:1 |" in markdown
+    assert "| Confluence | PASS |" in markdown
     assert issue_title("IBM", snap.signal_date) == "[ENTRY] IBM 2024-06-03"
 
 
@@ -72,7 +73,7 @@ def test_earnings_blackout_blocks_inside_window(offset: int):
     result = evaluate(snap, earnings, cfg)
     assert not result.entry_triggered
     assert not result.gate("earnings").passed
-    assert result.levels is None
+    assert result.levels is not None
     assert "earnings" in result.summary
 
 
@@ -115,7 +116,7 @@ def test_confluence_requires_every_gate():
         result = evaluate(mutated, _far_earnings(mutated.signal_date), cfg)
         assert not result.entry_triggered, name
         assert not result.gate(name).passed, name
-        assert result.levels is None, name
+        assert result.levels is not None, name
 
 
 def test_rsi_freefall_without_stabilization_fails_pullback():

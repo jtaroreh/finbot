@@ -1,8 +1,9 @@
-"""CLI: scan watchlist, print markdown, optionally open a GitHub Issue."""
+"""CLI: scan watchlist, print markdown, Issue on ENTRY, webhook every successful scan."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from typing import Sequence
@@ -10,7 +11,7 @@ from typing import Sequence
 from finbot.config import AppConfig, TickerConfig, load_config
 from finbot.data import DataError, fetch_earnings_dates, fetch_ohlcv
 from finbot.indicators import build_snapshot
-from finbot.notifier import NotifyError, notify
+from finbot.notifier import NotifyError, alert_payload, format_notify_plan, notify
 from finbot.strategy import ScanResult, evaluate, format_report
 
 logger = logging.getLogger("finbot")
@@ -24,7 +25,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the markdown snapshot; do not create a GitHub Issue or POST the Grok Bot webhook.",
+        help="Print markdown + webhook JSON; do not create an Issue or POST. "
+        "Webhook would be sent every run when secrets exist; Issue only on ENTRY.",
     )
     parser.add_argument(
         "--config",
@@ -89,6 +91,11 @@ def run(argv: Sequence[str] | None = None) -> int:
 
         report = format_report(result)
         print(report)
+        print(format_notify_plan(result, dry_run=args.dry_run))
+        if args.dry_run:
+            print("## Webhook JSON (not posted)")
+            print(json.dumps(alert_payload(result), indent=2))
+            print()
         if result.entry_triggered:
             logger.info("%s %s: ENTRY", result.ticker, result.signal_date)
         else:

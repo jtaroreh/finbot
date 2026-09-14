@@ -13,10 +13,11 @@ from finbot.indicators import Snapshot
 from finbot.notifier import (
     NotifyError,
     alert_payload,
+    format_notify_plan,
     maybe_post_webhook,
     notify,
 )
-from finbot.strategy import evaluate
+from finbot.strategy import evaluate, format_report
 from tests.test_strategy import _passing_snapshot
 
 
@@ -67,15 +68,25 @@ def test_webhook_skipped_on_dry_run_even_with_env(monkeypatch: pytest.MonkeyPatc
         post.assert_not_called()
 
 
-def test_webhook_skipped_when_no_entry(monkeypatch: pytest.MonkeyPatch):
+def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch):
     snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0)
     result = evaluate(snap, [date(2024, 7, 3)], default_ticker())
     assert not result.entry_triggered
     monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
     monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
-    with patch("finbot.notifier.requests.post") as post:
-        assert maybe_post_webhook(result) is False
-        post.assert_not_called()
+    response = Mock()
+    response.status_code = 200
+    response.text = "ok"
+    with patch("finbot.notifier.requests.post", return_value=response) as post:
+        assert maybe_post_webhook(result) is True
+    body = post.call_args[1]["json"]
+    assert body["signal"] == "NO_ENTRY"
+    assert body["confluence"] is False
+    assert body["gates"]["pullback"]["passed"] is False
+    assert body["stop"] == 168.0
+    assert body["target_2r"] == 177.0
+    assert body["target_3r"] == 180.0
+    assert "issue_url" not in body
 
 
 def test_webhook_posts_json_with_bearer_when_env_set(monkeypatch: pytest.MonkeyPatch):
@@ -95,6 +106,7 @@ def test_webhook_posts_json_with_bearer_when_env_set(monkeypatch: pytest.MonkeyP
     body = kwargs["json"]
     assert body["ticker"] == "IBM"
     assert body["signal"] == "ENTRY"
+    assert body["confluence"] is True
     assert body["signal_date"] == "2024-06-03"
     assert body["entry"] == 171.0
     assert body["stop"] == 168.0
@@ -145,9 +157,45 @@ def test_notify_dry_run_skips_issue_and_webhook(monkeypatch: pytest.MonkeyPatch)
         post.assert_not_called()
 
 
+def test_dry_run_plan_says_webhook_would_send_when_secrets_exist(monkeypatch: pytest.MonkeyPatch):
+    result = _entry_result()
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    plan = format_notify_plan(result, dry_run=True)
+    assert "Webhook: would POST IBM snapshot every run" in plan
+    assert "signal=ENTRY" in plan
+    assert "confluence=true" in plan
+    assert "Issue: would create [ENTRY] IBM 2024-06-03" in plan
+
+    fail = evaluate(
+        _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0),
+        [date(2024, 7, 3)],
+        default_ticker(),
+    )
+    fail_plan = format_notify_plan(fail, dry_run=True)
+    assert "Webhook: would POST IBM snapshot every run" in fail_plan
+    assert "signal=NO_ENTRY" in fail_plan
+    assert "confluence=false" in fail_plan
+    assert "Issue: skipped (technical confluence did not pass)" in fail_plan
+    assert "| Suggested Target 2:1 |" in format_report(fail)
+
+
 def test_alert_payload_omits_issue_url_when_missing():
     result = _entry_result()
     body = alert_payload(result)
     assert "issue_url" not in body
     assert body["signal"] == "ENTRY"
+    assert body["confluence"] is True
     assert set(body["gates"]) >= {"earnings", "trend", "pullback", "support", "volume"}
+
+
+def test_alert_payload_no_entry_keeps_suggested_levels():
+    snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0)
+    result = evaluate(snap, [date(2024, 7, 3)], default_ticker())
+    body = alert_payload(result)
+    assert body["signal"] == "NO_ENTRY"
+    assert body["confluence"] is False
+    assert body["entry"] == 171.0
+    assert body["stop"] == 168.0
+    assert body["gates"]["pullback"]["passed"] is False
+    assert body["earnings"]["blackout_passed"] is True
