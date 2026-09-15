@@ -7,7 +7,7 @@ It evaluates the watchlist on weekdays at 12:20pm America/Los_Angeles, then uses
 1. **Daily webhook snapshot** — on every successful scan, POST the full ticker JSON (gates, indicators, earnings blackout, tranche metadata) to a Grok Bot webhook so the Bot can make a holistic judgment. This happens for `ENTRY` and `NO_ENTRY`.
 2. **GitHub Issue only on technical confluence** — open one Issue only when the python gates all pass (`signal=ENTRY`, `confluence=true`). No Issue on `NO_ENTRY` days. The Issue is framed as a **buy tranche**, not a swing trade.
 
-The default watchlist is **IBM only**. The engine already loops every enabled ticker. This repository publishes scanner output; it is not a recommendation to buy or sell anything.
+The default watchlist is **IBM**, **QTUM** (Defiance Quantum ETF), and **AIPO** (Defiance AI & Power Infrastructure ETF). The engine loops every enabled ticker. This repository publishes scanner output; it is not a recommendation to buy or sell anything.
 
 ## Architecture
 
@@ -59,12 +59,12 @@ python -m finbot.cli --dry-run --config config/watchlist.yaml
 
 `--dry-run` prints the snapshot table, gate states, tranche metadata, and the webhook JSON. It never POSTs and never creates an Issue. It does print:
 
-- `Webhook: would POST … every run` when `FINBOT_GROK_WEBHOOK_URL` and `FINBOT_GROK_WEBHOOK_SECRET` are set (otherwise `Webhook: skipped … unset`)
+- `Webhook: would POST … every run` when that ticker resolves a URL + secret (per-ticker env first, then the unsuffixed pair); otherwise `Webhook: skipped … unset`
 - `Issue: would create [ACCUMULATION] …` only on technical accumulation confluence; otherwise `Issue: skipped (technical confluence did not pass)`
 
 Without `--dry-run`:
 
-- The Grok Bot webhook is POSTed on **every successful scan** when both secrets are set (ENTRY and NO_ENTRY). If either secret is missing, the webhook is skipped quietly.
+- The Grok Bot webhook is POSTed on **every successful scan** when that ticker resolves both a URL and a secret (ENTRY and NO_ENTRY). If either is missing, the webhook is skipped quietly.
 - An Issue is created only when python confluence passes **and** `GITHUB_TOKEN` plus `GITHUB_REPOSITORY` are set.
 
 Tests (no network except optional live dry-run):
@@ -90,14 +90,29 @@ Do not commit webhook URLs or keys. Add them on the repo:
 
 **Settings → Secrets and variables → Actions → New repository secret**
 
+The notifier looks up credentials **per ticker**: `FINBOT_GROK_WEBHOOK_URL_<TICKER>` / `FINBOT_GROK_WEBHOOK_SECRET_<TICKER>` first, then falls back to the unsuffixed `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET`. Missing GitHub Actions secrets are empty strings; empty values are treated as unset, so the ticker falls back (or the webhook is skipped).
+
+**Joel’s two-bot layout**
+
+| Bot | Tickers | GitHub Actions secrets |
+|---|---|---|
+| `ibm entry` | IBM | `FINBOT_GROK_WEBHOOK_URL_IBM` + `FINBOT_GROK_WEBHOOK_SECRET_IBM` |
+| `theme etf entry` | QTUM, AIPO | Same theme-bot **POST to** URL and **key** in **both** `_QTUM` and `_AIPO` pairs |
+
+Copy **POST to** and **key** (`crsr_…`) from each Bot’s webhook panel. QTUM and AIPO must share the theme-bot URL and secret so both ETFs land on `theme etf entry`:
+
 | Secret | Value |
 |---|---|
-| `FINBOT_GROK_WEBHOOK_URL` | Routine **POST to** URL from the Grok Bot webhook panel |
-| `FINBOT_GROK_WEBHOOK_SECRET` | Routine **key** (`crsr_…`) from that same panel |
+| `FINBOT_GROK_WEBHOOK_URL_IBM` | `ibm entry` routine **POST to** URL |
+| `FINBOT_GROK_WEBHOOK_SECRET_IBM` | `ibm entry` routine **key** (`crsr_…`) |
+| `FINBOT_GROK_WEBHOOK_URL_QTUM` | `theme etf entry` routine **POST to** URL |
+| `FINBOT_GROK_WEBHOOK_SECRET_QTUM` | `theme etf entry` routine **key** (`crsr_…`) |
+| `FINBOT_GROK_WEBHOOK_URL_AIPO` | same URL as `_QTUM` |
+| `FINBOT_GROK_WEBHOOK_SECRET_AIPO` | same key as `_QTUM` |
 
-Optional per-ticker overrides (one Bot per ticker): `FINBOT_GROK_WEBHOOK_URL_IBM` and `FINBOT_GROK_WEBHOOK_SECRET_IBM` (replace `IBM` with the symbol). Those win over the repo-wide pair when set.
+**Warning:** a bare `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET` (no ticker suffix) is a catch-all. Every ticker without a suffixed pair POSTs to that one Bot. Once you run more than one Bot, migrate IBM off the unsuffixed secrets onto `_IBM`. If IBM still uses the unsuffixed pair and `_QTUM` / `_AIPO` are unset, QTUM and AIPO will also post to `ibm entry`.
 
-If the secrets are unset, the workflow still scans and still opens Issues on accumulation confluence; it just skips the webhook.
+The workflow still passes the unsuffixed pair for a single-bot fallback. If no URL+secret pair resolves for a ticker, the scan and Issue path still run; only the webhook is skipped.
 
 ### Auth header (match the Grok Bot routine panel)
 
@@ -136,4 +151,4 @@ On `NO_ENTRY` days `signal` is `"NO_ENTRY"`, `confluence` is `false`, tranche fi
 
 ## Watchlist
 
-`config/watchlist.yaml` currently lists IBM with accumulation defaults (rising-200 pullback band, weekly RSI, 10/10 structural pivots, volume expansion off, 2.25× ATR tranche spacing). The engine already loops all enabled tickers; add another symbol under `tickers:` with optional overrides (blackout window, RSI thresholds, SMA 200 band, and so on).
+`config/watchlist.yaml` lists **IBM**, **QTUM**, and **AIPO** with the same accumulation defaults (rising-200 pullback band, weekly RSI, 10/10 structural pivots, volume expansion off, 2.25× ATR tranche spacing, 5-day earnings blackout). The blackout is typically weaker for ETFs (no single-name earnings event) but is left at 5 rather than a special ETF gate. The engine already loops all enabled tickers; add another symbol under `tickers:` with optional overrides (blackout window, RSI thresholds, SMA 200 band, and so on).

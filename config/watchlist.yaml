@@ -39,3 +39,10 @@ defaults:
 
 tickers:
   IBM: {}
+  # Defiance Quantum ETF — same accumulation defaults as IBM.
+  # Earnings blackout stays 5 days. ETFs typically have no single-name
+  # earnings event (the gate is weaker / often a no-op), but yfinance may
+  # still surface dates so the default still applies.
+  QTUM: {}
+  # Defiance AI & Power Infrastructure ETF — same defaults as IBM (see QTUM).
+  AIPO: {}

@@ -150,15 +150,17 @@ def test_add_indicators_and_snapshot_use_last_bar():
 
 def test_watchlist_loads_ibm_accumulation_defaults():
     config = load_config()
-    ibm = config.ticker("IBM")
-    assert ibm.earnings_blackout_days == 5
-    assert ibm.volume_min_multiple == 0.0
-    assert ibm.swing_left == 10
-    assert ibm.swing_right == 10
-    assert ibm.rsi_weekly_max == 40.0
-    assert ibm.rsi_daily_extreme == 25.0
-    assert ibm.sma200_proximity_pct == 3.0
-    assert ibm.sma200_undershoot_pct == 1.0
-    assert ibm.tranche_spacing_atr == 2.25
-    assert ibm.invalidation_atr_multiple == 3.0
-    assert [t.symbol for t in config.tickers] == ["IBM"]
+    assert [t.symbol for t in config.tickers] == ["IBM", "QTUM", "AIPO"]
+    for symbol in ("IBM", "QTUM", "AIPO"):
+        item = config.ticker(symbol)
+        assert item.enabled is True
+        assert item.earnings_blackout_days == 5
+        assert item.volume_min_multiple == 0.0
+        assert item.swing_left == 10
+        assert item.swing_right == 10
+        assert item.rsi_weekly_max == 40.0
+        assert item.rsi_daily_extreme == 25.0
+        assert item.sma200_proximity_pct == 3.0
+        assert item.sma200_undershoot_pct == 1.0
+        assert item.tranche_spacing_atr == 2.25
+        assert item.invalidation_atr_multiple == 3.0
