@@ -86,7 +86,7 @@ def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch)
     assert body["thesis"] == "long_term_accumulation"
     assert body["next_tranche"] == pytest.approx(171.0 - 2.25 * 2.0)
     assert body["tranche_spacing_atr"] == 2.25
-    assert body["invalidation_level"] == 168.5
+    assert body["invalidation_level"] == 164.0
     assert "invalidation_hint" in body
     assert "stop" not in body
     assert "target_2r" not in body
@@ -111,14 +111,15 @@ def test_webhook_posts_json_with_bearer_when_env_set(monkeypatch: pytest.MonkeyP
     body = kwargs["json"]
     assert body["ticker"] == "IBM"
     assert body["signal"] == "ENTRY"
+    assert body["signal_tier"] in ("TIER_1_ROUTINE", "TIER_2_MAJOR")
     assert body["confluence"] is True
     assert body["thesis"] == "long_term_accumulation"
     assert body["signal_date"] == "2024-06-03"
     assert body["entry"] == 171.0
     assert body["next_tranche"] == pytest.approx(171.0 - 2.25 * 2.0)
     assert body["tranche_spacing_atr"] == 2.25
-    assert body["invalidation_level"] == 168.5
-    assert "1.5" in body["invalidation_hint"]
+    assert body["invalidation_level"] == 164.0
+    assert "weekly close confirmation" in body["invalidation_hint"]
     assert "stop" not in body
     assert "target_2r" not in body
     assert "target_3r" not in body

@@ -144,23 +144,30 @@ def test_add_indicators_and_snapshot_use_last_bar():
     assert snap.volume_multiple is not None
     assert snap.rsi_weekly is not None
     assert snap.sma_200_distance_pct is not None
+    assert isinstance(snap.sma_50_slope_up, bool)
     assert isinstance(snap.sma_200_slope_up, bool)
     assert isinstance(snap.sma_200_reclaim, bool)
+    assert snap.history_bars == n
 
 
 def test_watchlist_loads_ibm_accumulation_defaults():
     config = load_config()
     assert [t.symbol for t in config.tickers] == ["IBM", "QTUM", "AIPO"]
+    assert config.ticker("IBM").asset_type == "equity"
+    assert config.ticker("QTUM").asset_type == "etf"
+    assert config.ticker("AIPO").asset_type == "etf"
     for symbol in ("IBM", "QTUM", "AIPO"):
         item = config.ticker(symbol)
         assert item.enabled is True
+        assert item.tier1_enabled is True
+        assert item.tier2_enabled is True
         assert item.earnings_blackout_days == 5
         assert item.volume_min_multiple == 0.0
         assert item.swing_left == 10
         assert item.swing_right == 10
-        assert item.rsi_weekly_max == 40.0
-        assert item.rsi_daily_extreme == 25.0
+        assert item.rsi_weekly_max == 50.0
+        assert item.rsi_daily_extreme == 30.0
         assert item.sma200_proximity_pct == 3.0
         assert item.sma200_undershoot_pct == 1.0
         assert item.tranche_spacing_atr == 2.25
-        assert item.invalidation_atr_multiple == 3.0
+        assert item.invalidation_atr_multiple == 3.5

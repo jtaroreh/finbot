@@ -27,6 +27,7 @@ class Snapshot:
     rsi_14_prev: float | None
     rsi_weekly: float | None
     rsi_weekly_prev: float | None
+    rsi_weekly_live: float | None
     atr_14: float | None
     volume_avg_20: float | None
     volume_multiple: float | None
@@ -35,9 +36,13 @@ class Snapshot:
     golden_cross_recent: bool
     close_crossed_above_sma50: bool
     sma50_above_sma200: bool
+    sma_50_slope_up: bool
+    sma_50_distance_pct: float | None
     sma_200_slope_up: bool
     sma_200_distance_pct: float | None
     sma_200_reclaim: bool
+    history_bars: int = 0
+    sma200_is_mature: bool = False
 
 
 def sma(series: pd.Series, period: int) -> pd.Series:
@@ -59,20 +64,26 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return rsi_value.where(~both_zero, 50.0)
 
 
-def weekly_close(close: pd.Series) -> pd.Series:
-    """Resample daily closes to weekly Friday bars, including the in-progress week."""
+def weekly_close(close: pd.Series, complete_only: bool = False) -> pd.Series:
+    """Resample daily closes to weekly Friday bars.
+    
+    If complete_only is True and the last bar in close is not a Friday,
+    the last in-progress weekly bar is excluded for signal stability.
+    """
     if close.empty:
         return close.copy()
     series = close.copy()
     if not isinstance(series.index, pd.DatetimeIndex):
         series.index = pd.to_datetime(series.index)
-    weekly = series.resample("W-FRI").last()
-    return weekly.dropna()
+    weekly = series.resample("W-FRI").last().dropna()
+    if complete_only and len(weekly) > 1 and series.index[-1].weekday() != 4:
+        weekly = weekly.iloc[:-1]
+    return weekly
 
 
-def weekly_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+def weekly_rsi(close: pd.Series, period: int = 14, complete_only: bool = False) -> pd.Series:
     """Wilder RSI on weekly closes resampled from daily bars."""
-    return rsi(weekly_close(close), period)
+    return rsi(weekly_close(close, complete_only=complete_only), period)
 
 
 def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
@@ -194,10 +205,19 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         if prev_sma50 is not None and prev_close is not None:
             crossed_50 = last_close > sma50 and prev_close <= prev_sma50
 
-    wrsi = weekly_rsi(marked["Close"], cfg.rsi_period)
-    wrsi_valid = wrsi.dropna()
-    rsi_weekly = float(wrsi_valid.iloc[-1]) if not wrsi_valid.empty else None
-    rsi_weekly_prev = float(wrsi_valid.iloc[-2]) if len(wrsi_valid) > 1 else None
+    # Completed weekly closes for stable signal evaluation
+    wrsi_stable = weekly_rsi(marked["Close"], cfg.rsi_period, complete_only=True)
+    wrsi_stable_valid = wrsi_stable.dropna()
+    rsi_weekly = float(wrsi_stable_valid.iloc[-1]) if not wrsi_stable_valid.empty else None
+    rsi_weekly_prev = float(wrsi_stable_valid.iloc[-2]) if len(wrsi_stable_valid) > 1 else None
+
+    # Live in-progress weekly RSI
+    wrsi_live = weekly_rsi(marked["Close"], cfg.rsi_period, complete_only=False)
+    wrsi_live_valid = wrsi_live.dropna()
+    rsi_weekly_live = float(wrsi_live_valid.iloc[-1]) if not wrsi_live_valid.empty else None
+
+    sma_50_slope_up = sma_is_rising(marked["SMA_50"], cfg.sma50_slope_lookback)
+    sma_50_distance_pct = ((last_close / sma50) - 1.0) * 100.0 if sma50 else None
 
     slope_up = sma_is_rising(marked["SMA_200"], cfg.sma200_slope_lookback)
     distance_pct = ((last_close / sma200) - 1.0) * 100.0 if sma200 else None
@@ -208,6 +228,9 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         washout_lookback=cfg.sma200_washout_lookback,
         recent_bars=cfg.sma200_reclaim_recent_bars,
     )
+
+    history_bars = len(ohlcv)
+    sma200_is_mature = history_bars >= 350
 
     signal_ts = pd.Timestamp(marked.index[-1])
     return Snapshot(
@@ -225,6 +248,7 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         rsi_14_prev=_opt_float(prev.get("RSI_14")) if prev is not None else None,
         rsi_weekly=rsi_weekly,
         rsi_weekly_prev=rsi_weekly_prev,
+        rsi_weekly_live=rsi_weekly_live,
         atr_14=_opt_float(last.get("ATR_14")),
         volume_avg_20=_opt_float(last.get("VOL_AVG_20")),
         volume_multiple=_opt_float(last.get("VOL_MULT")),
@@ -233,9 +257,13 @@ def build_snapshot(ohlcv: pd.DataFrame, cfg: TickerConfig) -> Snapshot:
         golden_cross_recent=golden,
         close_crossed_above_sma50=crossed_50,
         sma50_above_sma200=bool(sma50 is not None and sma200 is not None and sma50 > sma200),
+        sma_50_slope_up=sma_50_slope_up,
+        sma_50_distance_pct=sma_50_distance_pct,
         sma_200_slope_up=slope_up,
         sma_200_distance_pct=distance_pct,
         sma_200_reclaim=reclaim,
+        history_bars=history_bars,
+        sma200_is_mature=sma200_is_mature,
     )
 
 

@@ -3,20 +3,30 @@
 
 defaults:
   enabled: true
+  asset_type: "equity"
   lookback_period: "2y"
   earnings_blackout_days: 5
 
-  # RSI: weekly (resampled from daily) is primary; daily extreme is the alternate.
+  # Tier 1: Routine dip accumulation (50 SMA pullback during uptrends)
+  tier1_enabled: true
+  sma50_slope_lookback: 10      # SMA50[t] > SMA50[t-10] counts as upward-sloping
+  sma50_proximity_pct: 3.0      # max % above the 50 to still count as a pullback
+  sma50_undershoot_pct: 1.5     # max % below the 50 still allowed on a tag
+  rsi_daily_dip_min: 35.0       # daily RSI pullback lower bound
+  rsi_daily_dip_max: 48.0       # daily RSI pullback upper bound
+
+  # Tier 2: Major market / washout accumulation (200 SMA / deep RSI)
+  tier2_enabled: true
   rsi_period: 14
-  rsi_weekly_max: 40.0          # pass when weekly RSI is in the cyclical/oversold zone
-  rsi_daily_extreme: 25.0       # or pass when daily RSI is a washout extreme
+  rsi_weekly_max: 50.0          # pass when weekly RSI is in cyclical/oversold accumulation zone
+  rsi_daily_extreme: 30.0       # or pass when daily RSI is an extreme washout
 
   atr_period: 14
   sma_fast: 20
   sma_mid: 50
   sma_slow: 200
 
-  # SMA 200 accumulation filter (see strategy._trend_gate):
+  # SMA 200 accumulation filter (see strategy._tier2_trend_gate):
   # (A) upward-sloping 200 and close within [-undershoot, +proximity] % of it
   # (B) reclaim after a deep washout
   sma200_slope_lookback: 20     # SMA200[t] > SMA200[t-20] counts as upward-sloping
@@ -29,20 +39,20 @@ defaults:
   volume_avg_period: 20
   volume_min_multiple: 0.0      # 0 = off; quiet accumulation does not need 1.2× expansion
 
-  support_atr_multiple: 1.0     # structural swing / SMA 200 / SMA 50 tolerance
+  support_atr_multiple: 1.0     # structural swing / SMA tolerance
   tranche_spacing_atr: 2.25     # suggested next-tranche distance below entry (2.0–2.5× ATR)
-  invalidation_atr_multiple: 3.0  # wide context only; not a 1.5× ATR swing stop
+  invalidation_atr_multiple: 3.5  # wide structural context below Tranche 2; requires weekly close
 
   swing_left: 10                # multi-month structural pivots, not 5-bar chop
   swing_right: 10
   golden_cross_lookback: 10     # informational snapshot only; not a trend pass
 
 tickers:
-  IBM: {}
-  # Defiance Quantum ETF — same accumulation defaults as IBM.
-  # Earnings blackout stays 5 days. ETFs typically have no single-name
-  # earnings event (the gate is weaker / often a no-op), but yfinance may
-  # still surface dates so the default still applies.
-  QTUM: {}
-  # Defiance AI & Power Infrastructure ETF — same defaults as IBM (see QTUM).
-  AIPO: {}
+  IBM:
+    asset_type: equity
+  # Defiance Quantum ETF
+  QTUM:
+    asset_type: etf
+  # Defiance AI & Power Infrastructure ETF
+  AIPO:
+    asset_type: etf

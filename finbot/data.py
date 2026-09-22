@@ -34,7 +34,11 @@ def fetch_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     return frame
 
 
-def fetch_earnings_dates(symbol: str) -> list[date]:
+def fetch_earnings_dates(symbol: str, asset_type: str = "equity") -> list[date]:
+    if asset_type.lower() == "etf":
+        logger.info("%s: asset_type is etf; skipping single-company earnings lookup", symbol)
+        return []
+
     ticker = yf.Ticker(symbol)
     found: set[date] = set()
 

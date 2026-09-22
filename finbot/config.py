@@ -13,11 +13,21 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "watchlis
 # Long-term accumulation defaults (IBM-first; engine still loops every ticker).
 _DEFAULTS: dict[str, Any] = {
     "enabled": True,
+    "asset_type": "equity",
     "lookback_period": "2y",
     "earnings_blackout_days": 5,
+    # Tier 1 parameters
+    "tier1_enabled": True,
+    "sma50_slope_lookback": 10,
+    "sma50_proximity_pct": 3.0,
+    "sma50_undershoot_pct": 1.5,
+    "rsi_daily_dip_min": 35.0,
+    "rsi_daily_dip_max": 48.0,
+    # Tier 2 parameters
+    "tier2_enabled": True,
     "rsi_period": 14,
-    "rsi_weekly_max": 40.0,
-    "rsi_daily_extreme": 25.0,
+    "rsi_weekly_max": 50.0,
+    "rsi_daily_extreme": 30.0,
     "atr_period": 14,
     "sma_fast": 20,
     "sma_mid": 50,
@@ -32,7 +42,7 @@ _DEFAULTS: dict[str, Any] = {
     "volume_min_multiple": 0.0,
     "support_atr_multiple": 1.0,
     "tranche_spacing_atr": 2.25,
-    "invalidation_atr_multiple": 3.0,
+    "invalidation_atr_multiple": 3.5,
     "swing_left": 10,
     "swing_right": 10,
     "golden_cross_lookback": 10,
@@ -43,8 +53,16 @@ _DEFAULTS: dict[str, Any] = {
 class TickerConfig:
     symbol: str
     enabled: bool
+    asset_type: str
     lookback_period: str
     earnings_blackout_days: int
+    tier1_enabled: bool
+    sma50_slope_lookback: int
+    sma50_proximity_pct: float
+    sma50_undershoot_pct: float
+    rsi_daily_dip_min: float
+    rsi_daily_dip_max: float
+    tier2_enabled: bool
     rsi_period: int
     rsi_weekly_max: float
     rsi_daily_extreme: float
@@ -130,8 +148,16 @@ def _build_ticker(symbol: str, merged: Mapping[str, Any]) -> TickerConfig:
     return TickerConfig(
         symbol=symbol.upper(),
         enabled=bool(merged.get("enabled", True)),
+        asset_type=str(merged.get("asset_type", "equity")).lower(),
         lookback_period=str(merged["lookback_period"]),
         earnings_blackout_days=int(merged["earnings_blackout_days"]),
+        tier1_enabled=bool(merged.get("tier1_enabled", True)),
+        sma50_slope_lookback=int(merged.get("sma50_slope_lookback", 10)),
+        sma50_proximity_pct=float(merged.get("sma50_proximity_pct", 3.0)),
+        sma50_undershoot_pct=float(merged.get("sma50_undershoot_pct", 1.5)),
+        rsi_daily_dip_min=float(merged.get("rsi_daily_dip_min", 35.0)),
+        rsi_daily_dip_max=float(merged.get("rsi_daily_dip_max", 48.0)),
+        tier2_enabled=bool(merged.get("tier2_enabled", True)),
         rsi_period=int(merged["rsi_period"]),
         rsi_weekly_max=float(merged["rsi_weekly_max"]),
         rsi_daily_extreme=float(merged["rsi_daily_extreme"]),

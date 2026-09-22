@@ -2,8 +2,8 @@ name: Daily scan
 
 on:
   schedule:
-    # Weekdays 12:20pm America/Los_Angeles (PDT = 19:20 UTC; note GitHub cron is UTC-only so this is 11:20am PST in winter).
-    - cron: "20 19 * * 1-5"
+    # Weekdays 21:15 UTC (post-market close year-round: 5:15pm EDT in summer, 4:15pm EST in winter).
+    - cron: "15 21 * * 1-5"
   workflow_dispatch:
 
 permissions:

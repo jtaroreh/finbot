@@ -89,7 +89,10 @@ def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str,
     confluence = bool(result.entry_triggered)
     payload: dict[str, Any] = {
         "ticker": result.ticker,
+        "asset_type": result.asset_type,
         "signal": "ENTRY" if confluence else "NO_ENTRY",
+        "signal_tier": result.signal_tier,
+        "tier_detail": result.tier_detail,
         "confluence": confluence,
         "thesis": "long_term_accumulation",
         "signal_date": result.signal_date.isoformat(),
@@ -112,12 +115,17 @@ def alert_payload(result: ScanResult, issue_url: str | None = None) -> dict[str,
             "volume_multiple": _json_num(snap.volume_multiple),
             "sma_20": _json_num(snap.sma_20),
             "sma_50": _json_num(snap.sma_50),
+            "sma_50_slope_up": snap.sma_50_slope_up,
+            "sma_50_distance_pct": _json_num(snap.sma_50_distance_pct),
             "sma_200": _json_num(snap.sma_200),
             "sma_200_slope_up": snap.sma_200_slope_up,
             "sma_200_distance_pct": _json_num(snap.sma_200_distance_pct),
             "sma_200_reclaim": snap.sma_200_reclaim,
+            "sma200_is_mature": snap.sma200_is_mature,
+            "history_bars": snap.history_bars,
             "rsi_14": _json_num(snap.rsi_14),
             "rsi_weekly": _json_num(snap.rsi_weekly),
+            "rsi_weekly_live": _json_num(snap.rsi_weekly_live),
             "atr_14": _json_num(snap.atr_14),
             "swing_support": _json_num(snap.swing_support),
             "swing_resistance": _json_num(snap.swing_resistance),
@@ -137,17 +145,18 @@ def format_notify_plan(result: ScanResult, dry_run: bool = False) -> str:
     """Human-readable dual-path plan: daily webhook vs Issue-only-on-ENTRY."""
     confluence = bool(result.entry_triggered)
     signal = "ENTRY" if confluence else "NO_ENTRY"
+    tier_info = f" ({result.signal_tier})" if confluence else ""
     url, secret = _webhook_credentials(result.ticker)
     if url and secret:
         if dry_run:
             webhook_line = (
                 f"Webhook: would POST {result.ticker} snapshot every run "
-                f"(signal={signal}, confluence={str(confluence).lower()}) — not sent in dry-run"
+                f"(signal={signal}{tier_info}, confluence={str(confluence).lower()}) — not sent in dry-run"
             )
         else:
             webhook_line = (
                 f"Webhook: POST {result.ticker} snapshot "
-                f"(signal={signal}, confluence={str(confluence).lower()})"
+                f"(signal={signal}{tier_info}, confluence={str(confluence).lower()})"
             )
     else:
         webhook_line = (
@@ -157,11 +166,11 @@ def format_notify_plan(result: ScanResult, dry_run: bool = False) -> str:
         title = issue_title(result.ticker, result.signal_date)
         if dry_run:
             issue_line = (
-                f"Issue: would create {title} (technical accumulation confluence) "
+                f"Issue: would create {title} (technical accumulation confluence: {result.signal_tier}) "
                 "— not created in dry-run"
             )
         else:
-            issue_line = f"Issue: create {title} (technical accumulation confluence)"
+            issue_line = f"Issue: create {title} (technical accumulation confluence: {result.signal_tier})"
     else:
         issue_line = "Issue: skipped (technical confluence did not pass)"
     return f"{webhook_line}\n{issue_line}\n"

@@ -1,154 +1,149 @@
 # finbot
 
-This repo is the **only scanner**. Grok Bot must not run its own yfinance scan. Finbot is a **long-term accumulation / buy-tranche** scanner (IBM-first, multi-ticker engine). It is **not** a short-term swing-entry system: there is no 1.5× ATR stop and no 2R/3R take-profit in the alert thesis.
+Finbot is a **two-tier accumulation engine** designed for disciplined long-term accumulation of high-conviction holdings (**IBM**, **QTUM**, and **AIPO**). It is **not** a short-term swing-trading system: there are no 1.5× ATR stops and no 2R/3R profit targets. Instead, it identifies optimal technical confluence windows for adding buy tranches into structural pullbacks when the underlying fundamental thesis is already established.
 
-It evaluates the watchlist on weekdays at 12:20pm America/Los_Angeles, then uses a dual path:
+The scanner runs daily post-market close on weekdays (21:15 UTC / 4:15pm US Eastern), operating via a dual path:
 
-1. **Daily webhook snapshot** — on every successful scan, POST the full ticker JSON (gates, indicators, earnings blackout, tranche metadata) to a Grok Bot webhook so the Bot can make a holistic judgment. This happens for `ENTRY` and `NO_ENTRY`.
-2. **GitHub Issue only on technical confluence** — open one Issue only when the python gates all pass (`signal=ENTRY`, `confluence=true`). No Issue on `NO_ENTRY` days. The Issue is framed as a **buy tranche**, not a swing trade.
+1. **Daily Webhook Snapshot** — On every scan, POSTs full ticker JSON (gates, technical indicators, asset archetype, earnings status, tranche levels) to Grok Bot webhooks so the AI can evaluate contextual market conditions.
+2. **GitHub Issue on Accumulation Trigger** — Automatically opens one GitHub Issue per ticker only when technical confluence passes (`signal=ENTRY`, `confluence=true`), tagged with the specific trigger tier (`TIER_1_ROUTINE` or `TIER_2_MAJOR`).
 
-The default watchlist is **IBM**, **QTUM** (Defiance Quantum ETF), and **AIPO** (Defiance AI & Power Infrastructure ETF). The engine loops every enabled ticker. This repository publishes scanner output; it is not a recommendation to buy or sell anything.
+The default watchlist consists of:
+- **IBM** (`asset_type: equity`) — Core enterprise AI/hybrid cloud dividend compounder. Subject to single-name earnings blackouts.
+- **QTUM** (`asset_type: etf`) — Defiance Quantum ETF (~70 equal-weighted tech/quantum holdings). Earnings blackout marked N/A.
+- **AIPO** (`asset_type: etf`) — Defiance AI & Power Infrastructure ETF (grid, nuclear, data center utilities). Surfaces indicator maturity status.
 
-## Architecture
+This repository publishes scanner output; it is not financial advice.
 
-1. **One finbot repo, many tickers.** Add symbols under `tickers:` in `config/watchlist.yaml`. One weekday Actions workflow scans all of them.
-2. **Grok Bot does not scan.** A Bot per ticker is optional. Each Bot should use a **webhook trigger** (When to run → webhook), not its own cron / yfinance job. Finbot is the only place that fetches market data.
-3. **Dual path.** Actions POSTs a snapshot webhook **every successful run**. It creates an Issue **only** when python confluence / high-conviction accumulation ENTRY passes.
+## Two-Tier Accumulation Model
 
-## How the scan works
+Waiting for a deep 200 SMA crash during secular bull markets risks complete cash drag and opportunity cost. Conversely, buying indiscriminately risks catching local tops. Finbot addresses this with a two-tier framework:
 
-1. Load `config/watchlist.yaml` (defaults plus per-ticker overrides).
-2. Fetch daily OHLCV and earnings dates with yfinance (no other market-data APIs).
-3. Compute 20 / 50 / 200 SMA, daily 14 RSI, **weekly 14 RSI** (daily closes resampled to Friday bars), 14 ATR, volume vs the prior 20-day average, and confirmed structural swing support / resistance (`swing_left` / `swing_right` default 10/10).
-4. Evaluate an earnings blackout (default: 5 calendar days before/around earnings) plus trend, RSI, support, and volume gates. Volume expansion is **off** by default (`volume_min_multiple: 0`) — quiet buying is allowed.
-5. Always compute **tranche metadata** (even when confluence fails): entry = signal close, next tranche = entry − 2.25× ATR, invalidation hint = sustainably below the 200 SMA (wide context, not a 1.5× ATR swing stop). 2R/3R targets are not part of the plan.
-6. POST one JSON snapshot per ticker to the Grok Bot webhook (`signal`: `ENTRY` | `NO_ENTRY`, `confluence`: true/false, `thesis`: `long_term_accumulation`, full gate/indicator/earnings/tranche payload).
-7. If every gate passes: create **one** Issue titled `[ACCUMULATION] TICKER YYYY-MM-DD`. Duplicate ticker+date Issues are skipped (open or closed).
-8. If any gate fails: print / log `NO ENTRY`, create **no** Issue, still POST the webhook snapshot.
+### Tier 1: Routine Dip (`TIER_1_ROUTINE`)
+- **Philosophy:** Standard institutional accumulation into minor consolidations during established uptrends.
+- **Trend Requirement:** 50 SMA is upward-sloping (`SMA50[t] > SMA50[t - 10]`) and close is within **−1.5% to +3.0%** of the 50 SMA.
+- **Pullback Requirement:** Daily RSI 14 pulled back into the **35 to 48** consolidation zone.
+- **Support Requirement:** Close or Low within 1.0× ATR of the 50 SMA or confirmed 10/10 structural fractal swing support.
+- **Frequency:** Typically triggers 2 to 4 times per year during normal bull market consolidation.
+- **Sizing:** Standard accumulation tranche (e.g. 1× unit).
 
-A failed data fetch for a ticker is not a successful scan — no webhook for that ticker.
+### Tier 2: Major Washout (`TIER_2_MAJOR`)
+- **Philosophy:** High-conviction accumulation during broad market corrections, cyclical de-risking, or macro washouts.
+- **Trend Requirement (either):**
+  - **(A) Rising 200 SMA Pullback:** Upward-sloping 200 SMA (`SMA200[t] > SMA200[t - 20]`) and close within **−1.0% to +3.0%** of the 200 SMA.
+  - **(B) Washout Reclaim:** Close back above 200 SMA after having dropped ≥ 5% below it within the past 60 sessions.
+- **Pullback Requirement:** Weekly RSI (closed bars) **< 50.0** or Daily RSI **< 30.0** (extreme oversold).
+- **Support Requirement:** Close or Low within 1.0× ATR of the 200 SMA or confirmed structural swing support.
+- **Frequency:** Typically triggers 1 time every 1 to 2 years.
+- **Sizing:** Heavy accumulation tranche (e.g. 2× unit).
 
-### SMA 200 rule (primary trend / location filter)
+## Tranche Spacing & Structural Invalidation
 
-Pass if **either**:
+Every signal computes coherent buy-tranche geometry:
+- **Entry Level:** Signal closing price.
+- **Next Buy Tranche:** `Entry - 2.25 × ATR(14)` (~4% to 7% below entry, staging dry powder for further consolidation).
+- **Structural Invalidation Level:** `Entry - 3.5 × ATR(14)` (placed well below the next buy tranche). Invalidation explicitly requires a confirmed weekly close below this level, avoiding premature shakeouts from 1-day intraday wicks.
 
-- **(A) Pullback to the institutional 200 SMA.** The 200 is upward-sloping (`SMA200[t] > SMA200[t − 20]`) **and** the close is inside **−1% to +3%** of it (sitting on the average counts). This is the “price came back to the 200” buy-tranche.
-- **(B) Reclaim after a deep washout.** Close is back above the 200 SMA, at least one bar in the last 60 sessions was **≥ 5% below** the 200, and price traded at or below the 200 within the last 10 sessions.
+## Asset Archetypes
 
-A 50/200 golden cross or a close crossing the 50 SMA is **not** a trend pass by itself. Thresholds are configurable (`sma200_slope_lookback`, `sma200_proximity_pct`, `sma200_undershoot_pct`, `sma200_washout_pct`, `sma200_washout_lookback`, `sma200_reclaim_recent_bars`).
+- **Single Equities (`asset_type: equity`):** IBM is evaluated against a 5-day calendar earnings blackout window to prevent buying ahead of binary earnings announcements.
+- **Thematic ETFs (`asset_type: etf`):** QTUM and AIPO hold diversified baskets and do not report single-company corporate earnings. The earnings gate passes cleanly with `detail: N/A: ETF basket`. AIPO's indicator maturity is reported in the snapshot (`sma200_is_mature`), allowing Tier 1 (50 SMA) signals to operate reliably while the 200 SMA continues to mature.
 
-### RSI rule
-
-**Primary:** weekly RSI (14, from resampled daily bars) **< 40** (soft cyclical / oversold zone).
-
-**Alternate:** daily RSI **< 25** (extreme washout). The old 30–45 daily “swing pullback” band is not a pass. Both thresholds are in config (`rsi_weekly_max`, `rsi_daily_extreme`); set a threshold to `0` to disable that path.
-
-## Run locally
+## Running Locally
 
 ```bash
+# Set up environment
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Scan IBM from the default watchlist; print markdown + webhook JSON; do not POST or create an Issue
+# Run dry-run scan (prints markdown report, gate states, and webhook JSON)
+python -m finbot.cli --dry-run
+
+# Run dry-run for a single ticker
 python -m finbot.cli --dry-run --ticker IBM
 
-# Alternate config path
+# Alternate config file
 python -m finbot.cli --dry-run --config config/watchlist.yaml
 ```
 
-`--dry-run` prints the snapshot table, gate states, tranche metadata, and the webhook JSON. It never POSTs and never creates an Issue. It does print:
-
-- `Webhook: would POST … every run` when that ticker resolves a URL + secret (per-ticker env first, then the unsuffixed pair); otherwise `Webhook: skipped … unset`
-- `Issue: would create [ACCUMULATION] …` only on technical accumulation confluence; otherwise `Issue: skipped (technical confluence did not pass)`
-
-Without `--dry-run`:
-
-- The Grok Bot webhook is POSTed on **every successful scan** when that ticker resolves both a URL and a secret (ENTRY and NO_ENTRY). If either is missing, the webhook is skipped quietly.
-- An Issue is created only when python confluence passes **and** `GITHUB_TOKEN` plus `GITHUB_REPOSITORY` are set.
-
-Tests (no network except optional live dry-run):
-
+Run test suite:
 ```bash
 pytest
 ```
 
-## GitHub Actions
+## GitHub Actions Automation
 
-`.github/workflows/daily_scan.yml` runs:
+`.github/workflows/daily_scan.yml` is scheduled as standard repository automation:
+- **Schedule:** `15 21 * * 1-5` (weekdays at 21:15 UTC / 4:15pm US Eastern), executing after the official New York cash equity session closes and settlement prices are finalized.
+- **Workflow Dispatch:** Can also be triggered manually via GitHub's UI.
+- **Permissions:** `contents: read` and `issues: write`.
 
-- cron `20 19 * * 1-5` (weekdays 12:20pm America/Los_Angeles; PDT = 19:20 UTC. GitHub cron is UTC-only, so this is 11:20am PST in winter)
-- `workflow_dispatch` for a manual run
+On every successful scan, the action POSTs the JSON snapshot to configured Grok Bot webhooks. On verified accumulation confluence (`signal=ENTRY`), it creates an Issue titled `[ACCUMULATION] TICKER YYYY-MM-DD`.
 
-The job checks out the repo, installs `requirements.txt`, and runs `python -m finbot.cli`. Permissions are `issues: write` and `contents: read`. The default `GITHUB_TOKEN` is enough to open Issues. This repo is public so Actions minutes are free.
+### Secrets Configuration
 
-On every successful ticker scan, Actions POSTs the JSON snapshot to the Grok Bot webhook. On **technical accumulation ENTRY only**, it also creates a dedicated Issue.
+Configure secrets under **Settings → Secrets and variables → Actions → New repository secret**:
 
-### Secrets (Grok Bot webhook)
-
-Do not commit webhook URLs or keys. Add them on the repo:
-
-**Settings → Secrets and variables → Actions → New repository secret**
-
-The notifier looks up credentials **per ticker**: `FINBOT_GROK_WEBHOOK_URL_<TICKER>` / `FINBOT_GROK_WEBHOOK_SECRET_<TICKER>` first, then falls back to the unsuffixed `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET`. Missing GitHub Actions secrets are empty strings; empty values are treated as unset, so the ticker falls back (or the webhook is skipped).
-
-**Joel’s two-bot layout**
-
-| Bot | Tickers | GitHub Actions secrets |
-|---|---|---|
-| `ibm entry` | IBM | `FINBOT_GROK_WEBHOOK_URL_IBM` + `FINBOT_GROK_WEBHOOK_SECRET_IBM` |
-| `theme etf entry` | QTUM, AIPO | Same theme-bot **POST to** URL and **key** in **both** `_QTUM` and `_AIPO` pairs |
-
-Copy **POST to** and **key** (`crsr_…`) from each Bot’s webhook panel. QTUM and AIPO must share the theme-bot URL and secret so both ETFs land on `theme etf entry`:
-
-| Secret | Value |
+| Secret | Description |
 |---|---|
-| `FINBOT_GROK_WEBHOOK_URL_IBM` | `ibm entry` routine **POST to** URL |
-| `FINBOT_GROK_WEBHOOK_SECRET_IBM` | `ibm entry` routine **key** (`crsr_…`) |
-| `FINBOT_GROK_WEBHOOK_URL_QTUM` | `theme etf entry` routine **POST to** URL |
-| `FINBOT_GROK_WEBHOOK_SECRET_QTUM` | `theme etf entry` routine **key** (`crsr_…`) |
-| `FINBOT_GROK_WEBHOOK_URL_AIPO` | same URL as `_QTUM` |
-| `FINBOT_GROK_WEBHOOK_SECRET_AIPO` | same key as `_QTUM` |
+| `FINBOT_GROK_WEBHOOK_URL_IBM` | Webhook URL for IBM routine |
+| `FINBOT_GROK_WEBHOOK_SECRET_IBM` | Bearer token for IBM routine |
+| `FINBOT_GROK_WEBHOOK_URL_QTUM` | Webhook URL for theme ETF routine |
+| `FINBOT_GROK_WEBHOOK_SECRET_QTUM` | Bearer token for theme ETF routine |
+| `FINBOT_GROK_WEBHOOK_URL_AIPO` | Same URL as QTUM |
+| `FINBOT_GROK_WEBHOOK_SECRET_AIPO` | Same token as QTUM |
 
-**Warning:** a bare `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET` (no ticker suffix) is a catch-all. Every ticker without a suffixed pair POSTs to that one Bot. Once you run more than one Bot, migrate IBM off the unsuffixed secrets onto `_IBM`. If IBM still uses the unsuffixed pair and `_QTUM` / `_AIPO` are unset, QTUM and AIPO will also post to `ibm entry`.
+A bare `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET` functions as a single-bot fallback.
 
-The workflow still passes the unsuffixed pair for a single-bot fallback. If no URL+secret pair resolves for a ticker, the scan and Issue path still run; only the webhook is skipped.
+## Grok Bot Instructions & Integration
 
-### Auth header (match the Grok Bot routine panel)
-
-Grok Bot webhook senders use a Bearer token. Finbot sends:
-
-```http
-Authorization: Bearer <FINBOT_GROK_WEBHOOK_SECRET>
-Content-Type: application/json
-```
-
-Copy **POST to** and **key** from the Bot routine after it is saved and Active. The panel’s **header** field is that same `Authorization: Bearer …` line. A `200` means the Bot accepted the call and started a run.
-
-JSON body (one POST per ticker, every successful scan):
+Finbot POSTs one JSON snapshot per ticker to Grok Bot routines on every scan:
 
 ```json
 {
   "ticker": "IBM",
+  "asset_type": "equity",
   "signal": "ENTRY",
+  "signal_tier": "TIER_1_ROUTINE",
+  "tier_detail": "Tier 1 (Routine 50 SMA Dip): Upward-sloping SMA 50...",
   "confluence": true,
   "thesis": "long_term_accumulation",
-  "signal_date": "2026-09-14",
+  "signal_date": "2026-09-22",
   "summary": "ENTRY",
-  "entry": 249.13,
-  "next_tranche": 240.01,
+  "entry": 231.87,
+  "next_tranche": 215.31,
   "tranche_spacing_atr": 2.25,
-  "invalidation_level": 257.78,
-  "invalidation_hint": "Not a swing take-profit plan. Suggested next buy tranche ~2.25× ATR below entry (240.01). Wide invalidation context: daily close sustainably below SMA 200 (257.78), not a 1.5× ATR stop.",
-  "gates": { "earnings": { "passed": true, "detail": "..." }, "...": {} },
-  "indicators": { "close": 249.13, "sma_200": 257.78, "rsi_14": 61.08, "rsi_weekly": 48.2, "sma_200_slope_up": true, "...": {} },
-  "earnings": { "next": "2026-10-21", "blackout_passed": true, "detail": "..." },
-  "issue_url": "https://github.com/owner/finbot/issues/12"
+  "invalidation_level": 206.11,
+  "invalidation_hint": "Wide invalidation context: requires weekly close confirmation...",
+  "gates": { ... },
+  "indicators": {
+    "sma_50": 229.31,
+    "sma_50_slope_up": true,
+    "sma_200": 255.92,
+    "sma200_is_mature": true,
+    "rsi_14": 46.19,
+    "rsi_weekly": 45.70,
+    "atr_14": 7.36
+  }
 }
 ```
 
-On `NO_ENTRY` days `signal` is `"NO_ENTRY"`, `confluence` is `false`, tranche fields (`entry` / `next_tranche` / `invalidation_*`) are still present, and `issue_url` is omitted. There is no `stop` / `target_2r` / `target_3r` headline.
+### Recommended Grok Bot Prompt / Routine Setup
 
-## Watchlist
+In your Grok Bot Routine instruction panel, use the following guidance to interpret incoming Finbot webhooks:
 
-`config/watchlist.yaml` lists **IBM**, **QTUM**, and **AIPO** with the same accumulation defaults (rising-200 pullback band, weekly RSI, 10/10 structural pivots, volume expansion off, 2.25× ATR tranche spacing, 5-day earnings blackout). The blackout is typically weaker for ETFs (no single-name earnings event) but is left at 5 rather than a special ETF gate. The engine already loops all enabled tickers; add another symbol under `tickers:` with optional overrides (blackout window, RSI thresholds, SMA 200 band, and so on).
+> **Role & Objective:**
+> You are a disciplined long-term capital allocation advisor. You receive daily technical snapshots from Finbot for high-conviction holdings (IBM, QTUM, AIPO). Your goal is to evaluate each snapshot and advise whether to execute an accumulation buy tranche.
+>
+> **Rules of Interpretation:**
+> 1. **Conviction is Pre-Established:** The fundamental long-term thesis for these assets is accepted. Do not reject buy tranches based on short-term news sentiment or market noise.
+> 2. **Signal Tier Sizing:**
+>    - `signal_tier == "TIER_1_ROUTINE"`: Routine 50 SMA dip during an ongoing uptrend. Recommend adding **1× standard accumulation tranche**.
+>    - `signal_tier == "TIER_2_MAJOR"`: Major market correction or 200 SMA washout. Recommend adding **2× heavy accumulation tranche**.
+>    - `signal_tier == "NONE"`: Market is extended or between dip zones. Recommend holding dry powder (`NO_ENTRY`).
+> 3. **Tranche Awareness:** Check `next_tranche` (~2.25× ATR below entry). If the user recently bought a tranche and price has not pulled back to `next_tranche`, advise patience.
+> 4. **Earnings Consideration:** If `asset_type == "equity"` and `gates.earnings.passed == false`, confirm that the purchase should wait until after the corporate earnings event. For ETFs, ignore single-name earnings dates.
+> 5. **Output Format:** Provide a concise 3-point briefing:
+>    - **Signal & Tier:** [ENTRY / NO ENTRY, Tier 1 or Tier 2]
+>    - **Technical Context:** [Current price vs 50/200 SMA, RSI status]
+>    - **Recommended Action:** [Execute Tranche 1 / Tranche 2 / Wait for Next Tranche]

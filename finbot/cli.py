@@ -55,7 +55,7 @@ def select_tickers(config: AppConfig, ticker: str | None) -> list[TickerConfig]:
 
 def scan_ticker(cfg: TickerConfig) -> ScanResult:
     ohlcv = fetch_ohlcv(cfg.symbol, period=cfg.lookback_period)
-    earnings = fetch_earnings_dates(cfg.symbol)
+    earnings = fetch_earnings_dates(cfg.symbol, asset_type=cfg.asset_type)
     snapshot = build_snapshot(ohlcv, cfg)
     return evaluate(snapshot, earnings, cfg)
 
