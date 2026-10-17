@@ -152,11 +152,12 @@ def test_add_indicators_and_snapshot_use_last_bar():
 
 def test_watchlist_loads_ibm_accumulation_defaults():
     config = load_config()
-    assert [t.symbol for t in config.tickers] == ["IBM", "QTUM", "AIPO"]
+    assert [t.symbol for t in config.tickers] == ["IBM", "QTUM", "AIPO", "SPCX"]
     assert config.ticker("IBM").asset_type == "equity"
     assert config.ticker("QTUM").asset_type == "etf"
     assert config.ticker("AIPO").asset_type == "etf"
-    for symbol in ("IBM", "QTUM", "AIPO"):
+    assert config.ticker("SPCX").asset_type == "equity"
+    for symbol in ("IBM", "QTUM", "AIPO", "SPCX"):
         item = config.ticker(symbol)
         assert item.enabled is True
         assert item.tier1_enabled is True
@@ -171,3 +172,32 @@ def test_watchlist_loads_ibm_accumulation_defaults():
         assert item.sma200_undershoot_pct == 1.0
         assert item.tranche_spacing_atr == 2.25
         assert item.invalidation_atr_multiple == 3.5
+
+
+def test_short_history_equity_builds_snapshot_without_sma200():
+    """Young listing (e.g. SPCX, ~90 bars): no crash, SMA 200 null, maturity false."""
+    n = 90
+    idx = pd.date_range("2026-06-12", periods=n, freq="B")
+    close = pd.Series(np.linspace(140, 160, n), index=idx)
+    frame = pd.DataFrame(
+        {
+            "Open": close,
+            "High": close + 1.0,
+            "Low": close - 1.0,
+            "Close": close,
+            "Volume": np.full(n, 1_000_000.0),
+        },
+        index=idx,
+    )
+    cfg = default_ticker("SPCX", asset_type="equity")
+    snap = build_snapshot(frame, cfg)
+    assert snap.ticker == "SPCX"
+    assert snap.history_bars == n
+    assert snap.sma200_is_mature is False
+    assert snap.sma_200 is None
+    assert snap.sma_200_distance_pct is None
+    assert snap.sma_200_reclaim is False
+    assert snap.sma_50 is not None
+    assert snap.rsi_14 is not None
+    assert snap.rsi_weekly is not None
+    assert snap.atr_14 is not None

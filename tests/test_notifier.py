@@ -44,7 +44,7 @@ def test_webhook_skipped_when_env_unset(monkeypatch: pytest.MonkeyPatch):
 def test_webhook_skipped_when_only_url_set(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
     _clear_webhook_env(monkeypatch)
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
     with patch("finbot.notifier.requests.post") as post:
         assert maybe_post_webhook(result) is False
         post.assert_not_called()
@@ -53,7 +53,7 @@ def test_webhook_skipped_when_only_url_set(monkeypatch: pytest.MonkeyPatch):
 def test_webhook_skipped_when_only_secret_set(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
     _clear_webhook_env(monkeypatch)
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     with patch("finbot.notifier.requests.post") as post:
         assert maybe_post_webhook(result) is False
         post.assert_not_called()
@@ -61,8 +61,8 @@ def test_webhook_skipped_when_only_secret_set(monkeypatch: pytest.MonkeyPatch):
 
 def test_webhook_skipped_on_dry_run_even_with_env(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     with patch("finbot.notifier.requests.post") as post:
         assert maybe_post_webhook(result, dry_run=True) is False
         post.assert_not_called()
@@ -72,8 +72,8 @@ def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch)
     snap = _passing_snapshot(rsi_14=70.0, rsi_14_prev=68.0, rsi_weekly=70.0)
     result = evaluate(snap, [date(2024, 7, 3)], default_ticker())
     assert not result.entry_triggered
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     response = Mock()
     response.status_code = 200
     response.text = "ok"
@@ -96,8 +96,8 @@ def test_webhook_posts_on_no_entry_when_env_set(monkeypatch: pytest.MonkeyPatch)
 
 def test_webhook_posts_json_with_bearer_when_env_set(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/automations/webhook/abc")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test_key")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/automations/webhook/abc")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test_key")
     response = Mock()
     response.status_code = 200
     response.text = "ok"
@@ -148,8 +148,8 @@ def test_webhook_uses_per_ticker_env_override(monkeypatch: pytest.MonkeyPatch):
 
 def test_webhook_non_200_raises(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     response = Mock()
     response.status_code = 401
     response.text = "unauthenticated"
@@ -160,8 +160,8 @@ def test_webhook_non_200_raises(monkeypatch: pytest.MonkeyPatch):
 
 def test_notify_dry_run_skips_issue_and_webhook(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     with patch("finbot.notifier.requests.post") as post, patch(
         "finbot.notifier.maybe_create_issue", return_value=None
     ) as create:
@@ -172,8 +172,8 @@ def test_notify_dry_run_skips_issue_and_webhook(monkeypatch: pytest.MonkeyPatch)
 
 def test_dry_run_plan_says_webhook_would_send_when_secrets_exist(monkeypatch: pytest.MonkeyPatch):
     result = _entry_result()
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/webhook")
-    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_test")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/webhook")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_test")
     plan = format_notify_plan(result, dry_run=True)
     assert "Webhook: would POST IBM snapshot every run" in plan
     assert "signal=ENTRY" in plan
@@ -217,3 +217,56 @@ def test_alert_payload_no_entry_keeps_suggested_levels():
     assert "stop" not in body
     assert body["gates"]["pullback"]["passed"] is False
     assert body["earnings"]["blackout_passed"] is True
+
+
+def _spcx_result():
+    snap: Snapshot = _passing_snapshot(ticker="SPCX")
+    return evaluate(snap, [snap.signal_date + timedelta(days=30)], default_ticker("SPCX"))
+
+
+def test_webhook_no_fallback_to_unsuffixed_generic_secret(monkeypatch: pytest.MonkeyPatch):
+    result = _spcx_result()
+    _clear_webhook_env(monkeypatch)
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL", "https://example.test/global")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET", "crsr_global")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/ibm")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_ibm")
+    with patch("finbot.notifier.requests.post") as post:
+        assert maybe_post_webhook(result) is False
+        post.assert_not_called()
+
+
+def test_missing_spcx_secret_warns_and_does_not_fail(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    result = _spcx_result()
+    _clear_webhook_env(monkeypatch)
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_IBM", "https://example.test/ibm")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_IBM", "crsr_ibm")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_SPCX", "")  # Actions passes unset secrets as ""
+    with patch("finbot.notifier.requests.post") as post, patch(
+        "finbot.notifier.maybe_create_issue", return_value=None
+    ):
+        with caplog.at_level("WARNING", logger="finbot.notifier"):
+            assert notify(result) is None
+        post.assert_not_called()
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("FINBOT_GROK_WEBHOOK_URL_SPCX" in r.getMessage() for r in warnings)
+    assert any("FINBOT_GROK_WEBHOOK_SECRET_SPCX" in r.getMessage() for r in warnings)
+    plan = format_notify_plan(result)
+    assert "FINBOT_GROK_WEBHOOK_URL_SPCX" in plan
+
+
+def test_spcx_posts_to_own_webhook(monkeypatch: pytest.MonkeyPatch):
+    result = _spcx_result()
+    _clear_webhook_env(monkeypatch)
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_URL_SPCX", "https://example.test/spcx")
+    monkeypatch.setenv("FINBOT_GROK_WEBHOOK_SECRET_SPCX", "crsr_spcx")
+    response = Mock()
+    response.status_code = 200
+    response.text = "ok"
+    with patch("finbot.notifier.requests.post", return_value=response) as post:
+        assert maybe_post_webhook(result) is True
+    assert post.call_args[0][0] == "https://example.test/spcx"
+    assert post.call_args[1]["headers"]["Authorization"] == "Bearer crsr_spcx"
+    assert post.call_args[1]["json"]["ticker"] == "SPCX"

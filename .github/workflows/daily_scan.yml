@@ -28,12 +28,14 @@ jobs:
       - name: Run finbot scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FINBOT_GROK_WEBHOOK_URL: ${{ secrets.FINBOT_GROK_WEBHOOK_URL }}
-          FINBOT_GROK_WEBHOOK_SECRET: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET }}
+          # Per-ticker webhook secrets only (no unsuffixed fallback). A missing
+          # pair skips that ticker's webhook with a warning; the run still passes.
           FINBOT_GROK_WEBHOOK_URL_IBM: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_IBM }}
           FINBOT_GROK_WEBHOOK_SECRET_IBM: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET_IBM }}
           FINBOT_GROK_WEBHOOK_URL_QTUM: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_QTUM }}
           FINBOT_GROK_WEBHOOK_SECRET_QTUM: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET_QTUM }}
           FINBOT_GROK_WEBHOOK_URL_AIPO: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_AIPO }}
           FINBOT_GROK_WEBHOOK_SECRET_AIPO: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET_AIPO }}
+          FINBOT_GROK_WEBHOOK_URL_SPCX: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_SPCX }}
+          FINBOT_GROK_WEBHOOK_SECRET_SPCX: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET_SPCX }}
         run: python -m finbot.cli
