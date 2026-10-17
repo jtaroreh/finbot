@@ -56,3 +56,8 @@ tickers:
   # Defiance AI & Power Infrastructure ETF
   AIPO:
     asset_type: etf
+  # SpaceX (Nasdaq: SPCX), listed 2026-06-12. Young listing: 200 SMA immature
+  # until ~350 bars, so Tier 2 cannot fire yet; Tier 1 (50 SMA) and the
+  # single-name earnings blackout apply.
+  SPCX:
+    asset_type: equity

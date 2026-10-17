@@ -1,6 +1,6 @@
 # finbot
 
-Finbot is a **two-tier accumulation engine** designed for disciplined long-term accumulation of high-conviction holdings (**IBM**, **QTUM**, and **AIPO**). It is **not** a short-term swing-trading system: there are no 1.5× ATR stops and no 2R/3R profit targets. Instead, it identifies optimal technical confluence windows for adding buy tranches into structural pullbacks when the underlying fundamental thesis is already established.
+Finbot is a **two-tier accumulation engine** designed for disciplined long-term accumulation of high-conviction holdings (**IBM**, **QTUM**, **AIPO**, and **SPCX**). It is **not** a short-term swing-trading system: there are no 1.5× ATR stops and no 2R/3R profit targets. Instead, it identifies optimal technical confluence windows for adding buy tranches into structural pullbacks when the underlying fundamental thesis is already established.
 
 The scanner runs daily post-market close on weekdays (21:15 UTC / 4:15pm US Eastern), operating via a dual path:
 
@@ -11,6 +11,7 @@ The default watchlist consists of:
 - **IBM** (`asset_type: equity`) — Core enterprise AI/hybrid cloud dividend compounder. Subject to single-name earnings blackouts.
 - **QTUM** (`asset_type: etf`) — Defiance Quantum ETF (~70 equal-weighted tech/quantum holdings). Earnings blackout marked N/A.
 - **AIPO** (`asset_type: etf`) — Defiance AI & Power Infrastructure ETF (grid, nuclear, data center utilities). Surfaces indicator maturity status.
+- **SPCX** (`asset_type: equity`) — SpaceX (Nasdaq, listed 2026-06-12). Young listing: the 200 SMA stays immature (`sma200_is_mature=false`) until ~350 daily bars, so only Tier 1 (50 SMA) can trigger for now. Subject to single-name earnings blackouts.
 
 This repository publishes scanner output; it is not financial advice.
 
@@ -47,6 +48,11 @@ Every signal computes coherent buy-tranche geometry:
 
 - **Single Equities (`asset_type: equity`):** IBM is evaluated against a 5-day calendar earnings blackout window to prevent buying ahead of binary earnings announcements.
 - **Thematic ETFs (`asset_type: etf`):** QTUM and AIPO hold diversified baskets and do not report single-company corporate earnings. The earnings gate passes cleanly with `detail: N/A: ETF basket`. AIPO's indicator maturity is reported in the snapshot (`sma200_is_mature`), allowing Tier 1 (50 SMA) signals to operate reliably while the 200 SMA continues to mature.
+- **Young equities (e.g. SPCX):** maturity handling is asset-agnostic. With fewer than 200 bars the SMA 200 is `null` and the Tier 2 trend gate fails with `SMA 200 unavailable`; Tier 1 is evaluated independently and the earnings blackout still applies.
+
+## Webhook Routing
+
+Each ticker posts only to its own Grok bot via `FINBOT_GROK_WEBHOOK_URL_<TICKER>` and `FINBOT_GROK_WEBHOOK_SECRET_<TICKER>` (repository Actions secrets, passed in `.github/workflows/daily_scan.yml`). There is no fallback to unsuffixed `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET`. If a ticker's pair is missing, its webhook is skipped with a warning and the run still succeeds.
 
 ## Running Locally
 

@@ -285,3 +285,63 @@ def test_calendar_extracts_earnings_not_dividend_dates():
         "Earnings Average": 2.88,
     }
     assert _extract_dates(calendar) == [date(2026, 10, 21)]
+
+
+def _young_equity_snapshot(**overrides) -> Snapshot:
+    """SPCX-like young listing: no SMA 200 yet, Tier 1 (50 SMA dip) geometry."""
+    close = 146.0
+    sma_50 = 148.0
+    base = _passing_snapshot(
+        ticker="SPCX",
+        close=close,
+        open=147.8,
+        high=147.9,
+        low=143.0,
+        sma_20=155.0,
+        sma_50=sma_50,
+        sma_50_distance_pct=(close / sma_50 - 1.0) * 100.0,
+        sma_50_slope_up=True,
+        sma_200=None,
+        sma_200_distance_pct=None,
+        sma_200_slope_up=False,
+        sma_200_reclaim=False,
+        sma50_above_sma200=False,
+        rsi_14=44.0,
+        rsi_weekly=72.0,
+        atr_14=7.0,
+        swing_support=104.8,
+        history_bars=88,
+        sma200_is_mature=False,
+    )
+    return replace(base, **overrides)
+
+
+def test_young_equity_tier2_fails_cleanly_and_tier1_can_qualify():
+    snap = _young_equity_snapshot()
+    cfg = default_ticker("SPCX", asset_type="equity")
+    result = evaluate(snap, _far_earnings(snap.signal_date), cfg)
+    assert result.entry_triggered is True
+    assert result.signal_tier == "TIER_1_ROUTINE"
+    assert result.asset_type == "equity"
+    assert result.levels is not None
+
+
+def test_young_equity_respects_earnings_blackout():
+    snap = _young_equity_snapshot()
+    cfg = default_ticker("SPCX", asset_type="equity")
+    result = evaluate(snap, [snap.signal_date + timedelta(days=4)], cfg)
+    assert result.entry_triggered is False
+    assert result.signal_tier == "NONE"
+    assert result.gate("earnings").passed is False
+
+
+def test_young_equity_without_tier1_setup_is_no_entry_not_crash():
+    snap = _young_equity_snapshot(rsi_14=60.0)  # outside Tier 1 dip band
+    cfg = default_ticker("SPCX", asset_type="equity")
+    result = evaluate(snap, _far_earnings(snap.signal_date), cfg)
+    assert result.entry_triggered is False
+    assert result.signal_tier == "NONE"
+    assert result.summary == "NO ENTRY (pullback)"
+    # With no SMA 200 the report surfaces the Tier 1 (50 SMA) trend gate.
+    assert result.gate("trend").detail.startswith("Tier 1:")
+    assert "200" in format_report(result)

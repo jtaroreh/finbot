@@ -159,9 +159,8 @@ def format_notify_plan(result: ScanResult, dry_run: bool = False) -> str:
                 f"(signal={signal}{tier_info}, confluence={str(confluence).lower()})"
             )
     else:
-        webhook_line = (
-            f"Webhook: skipped ({WEBHOOK_URL_ENV} or {WEBHOOK_SECRET_ENV} unset)"
-        )
+        url_env, secret_env = webhook_env_names(result.ticker)
+        webhook_line = f"Webhook: skipped ({url_env} or {secret_env} unset)"
     if confluence:
         title = issue_title(result.ticker, result.signal_date)
         if dry_run:
@@ -193,23 +192,25 @@ def maybe_post_webhook(
                 str(bool(result.entry_triggered)).lower(),
             )
         else:
-            logger.info(
+            url_env, secret_env = webhook_env_names(result.ticker)
+            logger.warning(
                 "%s %s: dry-run — webhook skipped (%s or %s unset)",
                 result.ticker,
                 result.signal_date,
-                WEBHOOK_URL_ENV,
-                WEBHOOK_SECRET_ENV,
+                url_env,
+                secret_env,
             )
         return False
 
     url, secret = _webhook_credentials(result.ticker)
     if not url or not secret:
-        logger.info(
-            "%s %s: webhook skipped (%s or %s unset)",
+        url_env, secret_env = webhook_env_names(result.ticker)
+        logger.warning(
+            "%s %s: webhook skipped (%s or %s unset); scan result not posted",
             result.ticker,
             result.signal_date,
-            WEBHOOK_URL_ENV,
-            WEBHOOK_SECRET_ENV,
+            url_env,
+            secret_env,
         )
         return False
 
@@ -328,11 +329,21 @@ def _request(method: str, path: str, params: dict[str, Any] | None = None, json:
     return requests.request(method, url, headers=_headers(), params=params, json=json, timeout=30)
 
 
-def _webhook_credentials(ticker: str) -> tuple[str | None, str | None]:
+def webhook_env_names(ticker: str) -> tuple[str, str]:
+    """Per-ticker webhook env var names, e.g. FINBOT_GROK_WEBHOOK_URL_IBM."""
     symbol = ticker.upper()
-    url = _env(f"{WEBHOOK_URL_ENV}_{symbol}") or _env(WEBHOOK_URL_ENV)
-    secret = _env(f"{WEBHOOK_SECRET_ENV}_{symbol}") or _env(WEBHOOK_SECRET_ENV)
-    return url, secret
+    return f"{WEBHOOK_URL_ENV}_{symbol}", f"{WEBHOOK_SECRET_ENV}_{symbol}"
+
+
+def _webhook_credentials(ticker: str) -> tuple[str | None, str | None]:
+    """Per-ticker credentials only.
+
+    There is deliberately no fallback to the unsuffixed FINBOT_GROK_WEBHOOK_URL /
+    FINBOT_GROK_WEBHOOK_SECRET: each ticker routes to its own Grok bot, and a
+    shared fallback silently misroutes packets for tickers whose bot is not set up.
+    """
+    url_env, secret_env = webhook_env_names(ticker)
+    return _env(url_env), _env(secret_env)
 
 
 def _env(name: str) -> str | None:
