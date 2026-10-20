@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import requests
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 ENTRY_LABEL = "entry-alert"
+# Added to an entry Issue once its webhook has been delivered, so a later run that
+# grades the same session (re-run, late cron) does not alert the bot twice.
+WEBHOOK_SENT_LABEL = "webhook-sent"
 API_VERSION = "2022-11-28"
 WEBHOOK_URL_ENV = "FINBOT_GROK_WEBHOOK_URL"
 WEBHOOK_SECRET_ENV = "FINBOT_GROK_WEBHOOK_SECRET"
@@ -23,8 +27,16 @@ class NotifyError(RuntimeError):
     """Raised when GitHub Issue or Grok Bot webhook notify fails."""
 
 
-def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
-    """Create one issue for a triggered entry. Returns the issue URL or None."""
+@dataclass(frozen=True)
+class IssueRef:
+    url: str
+    number: int | None
+    existed: bool
+    webhook_sent: bool = False
+
+
+def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> IssueRef | None:
+    """Create (or find) the one issue for a triggered entry. Returns None when no Issue applies."""
     if not result.entry_triggered:
         logger.info("%s %s: no entry — skipping Issue", result.ticker, result.signal_date)
         return None
@@ -42,7 +54,13 @@ def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
             existing.get("number"),
             existing.get("html_url"),
         )
-        return str(existing.get("html_url") or "")
+        labels_now = {str(lbl.get("name")) for lbl in existing.get("labels") or [] if isinstance(lbl, dict)}
+        return IssueRef(
+            url=str(existing.get("html_url") or ""),
+            number=existing.get("number"),
+            existed=True,
+            webhook_sent=WEBHOOK_SENT_LABEL in labels_now,
+        )
 
     body = format_report(result)
     labels = [ENTRY_LABEL, result.ticker.upper()]
@@ -54,25 +72,44 @@ def maybe_create_issue(result: ScanResult, dry_run: bool = False) -> str | None:
     data = response.json()
     url = data.get("html_url", "")
     logger.info("Created Issue #%s %s", data.get("number"), url)
-    return str(url)
+    return IssueRef(url=str(url), number=data.get("number"), existed=False)
 
 
-def notify(result: ScanResult, dry_run: bool = False) -> str | None:
-    """Issue only on technical ENTRY; webhook on every successful scan when secrets exist."""
-    issue_url: str | None = None
+def notify(result: ScanResult, dry_run: bool = False, resend: bool = False) -> str | None:
+    """Issue only on technical ENTRY; webhook on every successful scan when secrets exist.
+
+    If this session's Issue already exists and is labelled ``webhook-sent``, the
+    session was fully reported by an earlier run and the webhook is not re-sent
+    (unless ``resend``).
+    """
+    issue: IssueRef | None = None
     issue_error: NotifyError | None = None
     try:
-        issue_url = maybe_create_issue(result, dry_run=dry_run)
+        issue = maybe_create_issue(result, dry_run=dry_run)
     except NotifyError as exc:
         issue_error = exc
         logger.error("%s: Issue notify failed: %s", result.ticker, exc)
+    issue_url = issue.url if issue else None
+
+    if issue and issue.existed and issue.webhook_sent and not resend:
+        logger.info(
+            "%s %s: already reported (Issue #%s labelled %s) — skipping webhook",
+            result.ticker,
+            result.signal_date,
+            issue.number,
+            WEBHOOK_SENT_LABEL,
+        )
+        return issue_url
 
     webhook_error: NotifyError | None = None
     try:
-        maybe_post_webhook(result, issue_url=issue_url, dry_run=dry_run)
+        posted = maybe_post_webhook(result, issue_url=issue_url, dry_run=dry_run)
     except NotifyError as exc:
+        posted = False
         webhook_error = exc
         logger.error("%s: webhook notify failed: %s", result.ticker, exc)
+    if posted and issue and issue.number is not None:
+        _mark_webhook_sent(issue)
 
     if issue_error and webhook_error:
         raise NotifyError(f"{issue_error}; {webhook_error}") from webhook_error
@@ -275,6 +312,27 @@ def find_existing_issue(title: str, ticker: str, signal_date: object) -> dict[st
         if page.startswith(GITHUB_API):
             page = page[len(GITHUB_API) :]
     return None
+
+
+def _mark_webhook_sent(issue: IssueRef) -> None:
+    """Best effort: a failure here only risks one duplicate webhook later."""
+    try:
+        response = _request(
+            "POST",
+            f"/repos/{_repo()}/issues/{issue.number}/labels",
+            json={"labels": [WEBHOOK_SENT_LABEL]},
+        )
+    except (NotifyError, requests.RequestException) as exc:
+        logger.warning("Could not label Issue #%s %s: %s", issue.number, WEBHOOK_SENT_LABEL, exc)
+        return
+    if response.status_code >= 400:
+        logger.warning(
+            "Could not label Issue #%s %s (%s): %s",
+            issue.number,
+            WEBHOOK_SENT_LABEL,
+            response.status_code,
+            response.text,
+        )
 
 
 def _ensure_labels(names: list[str]) -> None:
