@@ -18,6 +18,26 @@ class DataError(RuntimeError):
     """Raised when market data cannot be loaded."""
 
 
+class StaleDataError(DataError):
+    """Raised when the newest daily bar is older than the session that just closed."""
+
+    def __init__(self, symbol: str, last_bar: date, expected: date) -> None:
+        super().__init__(
+            f"{symbol}: newest daily bar is {last_bar.isoformat()} but session "
+            f"{expected.isoformat()} has closed; Yahoo daily history is stale"
+        )
+        self.symbol = symbol
+        self.last_bar = last_bar
+        self.expected = expected
+
+
+def ensure_fresh(frame: pd.DataFrame, symbol: str, expected: date) -> None:
+    """Refuse to grade an old bar when a newer session should already exist."""
+    last_bar = pd.Timestamp(frame.index[-1]).date()
+    if last_bar < expected:
+        raise StaleDataError(symbol, last_bar, expected)
+
+
 def fetch_ohlcv(symbol: str, period: str = "2y") -> pd.DataFrame:
     ticker = yf.Ticker(symbol)
     try:

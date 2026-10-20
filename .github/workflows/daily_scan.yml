@@ -13,6 +13,8 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # Stale-data retries (3 x 5 min by default) can add ~15 minutes.
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

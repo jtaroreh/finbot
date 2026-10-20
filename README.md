@@ -54,6 +54,14 @@ Every signal computes coherent buy-tranche geometry:
 
 Each ticker posts only to its own Grok bot via `FINBOT_GROK_WEBHOOK_URL_<TICKER>` and `FINBOT_GROK_WEBHOOK_SECRET_<TICKER>` (repository Actions secrets, passed in `.github/workflows/daily_scan.yml`). There is no fallback to unsuffixed `FINBOT_GROK_WEBHOOK_URL` / `FINBOT_GROK_WEBHOOK_SECRET`. If a ticker's pair is missing, its webhook is skipped with a warning and the run still succeeds.
 
+## Late Runs and Stale Data
+
+GitHub often starts the 21:15 UTC cron hours late, sometimes after 00:00 UTC (still the same US/Eastern evening). For a while after the 8pm ET post-market close, Yahoo's daily history can omit the session that just closed, so the newest bar is the *previous* session. Finbot no longer trusts that bar blindly:
+
+- The scan computes the expected session: the latest NYSE trading day whose 4pm ET close has passed. It uses New York time and skips weekends and full-day NYSE holidays.
+- If a ticker's newest bar is older than that, finbot retries that ticker (default 3 more rounds, 5 minutes apart; `--stale-retries` / `--stale-wait` or `FINBOT_STALE_RETRIES` / `FINBOT_STALE_WAIT_SECONDS`). If the bar is still missing, it sends no Issue and no webhook for that ticker, and the run fails, so an old session is never re-graded and re-alerted.
+- Once a webhook for an entry Issue goes through, the Issue gets the `webhook-sent` label. A later run that grades the same session finds the Issue and skips the webhook. Pass `--resend` to override.
+
 ## Running Locally
 
 ```bash
