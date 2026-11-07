@@ -12,7 +12,7 @@ python -m pytest tests/test_deep_washout.py tests/test_strategy.py tests/test_in
 python research/deep_washout/run.py
 ```
 
-Writes `research/deep_washout/results/` (`REPORT.md`, `summary_table.csv`, provenance, as-of verification). Raw Yahoo caches under `cache/` are gitignored and never synthesized.
+Writes `research/deep_washout/results/` (`REPORT.md`, `key_oos_120d.md`, `summary_table.csv`, provenance, as-of verification). Raw Yahoo caches under `cache/` are gitignored and never synthesized. This branch’s committed results are from a 2026-11-07 fetch (last bar 2026-11-06).
 
 ## Decision rule (short)
 

@@ -109,7 +109,7 @@ def fetch_history(symbol: str, cache_dir: Path | None = CACHE_DIR) -> tuple[pd.D
     )
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(cache_dir / f"{symbol}.parquet")
+        frame.to_csv(cache_dir / f"{symbol}.csv")
         (cache_dir / f"{symbol}_provenance.json").write_text(
             json.dumps(asdict(prov), indent=2), encoding="utf-8"
         )

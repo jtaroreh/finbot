@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -362,64 +362,33 @@ def write_report(
     (out_dir / "parity.json").write_text(json.dumps(parity, indent=2, default=str), encoding="utf-8")
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    key_rows = [
+        r
+        for r in rows
+        if r.get("window") == "oos_from_2022" and int(r.get("horizon") or 0) == 120
+    ]
+    key_md = markdown_table(key_rows)
+    (out_dir / "oos_from_2022_h120.md").write_text(key_md + "\n", encoding="utf-8")
+    # Curated REPORT.md / key_oos_120d.md stay in git; this dump is the raw rerun artifact.
     lines = [
-        "# Deep-washout accumulation: held-out results",
-        "",
-        f"Generated: {generated} UTC. Protocol `{protocol['protocol_id']}` frozen {protocol['frozen_at']}.",
-        "This is not financial advice and not a promise of future profit.",
-        "",
-        "## Conclusion",
+        f"generated_utc: {generated}",
+        f"protocol: {protocol['protocol_id']} frozen {protocol['frozen_at']}",
+        f"ship_tier: {decision.get('ship_tier')}",
         "",
         decision.get("conclusion", ""),
         "",
-        f"- Ship new live tier: **{decision.get('ship_tier')}**",
-        f"- Event-test candidates: {decision.get('candidates_passing_event_tests')}",
-        f"- Chosen (if any): {decision.get('chosen_event_candidate')}",
+        "See REPORT.md and key_oos_120d.md for the human summary.",
         "",
-        "## Sizing / spacing decision (even if no tier ships)",
+        "## OOS 2022+ horizon 120 (all assets)",
+        "",
+        key_md,
+        "",
+        "## Sizing",
         "",
         json.dumps(sizing, indent=2),
         "",
-        "## As-of verification (2026-11-06 tape)",
-        "",
-        "```json",
-        json.dumps(asof, indent=2, default=str),
-        "```",
-        "",
-        "## Data provenance",
-        "",
-        "```json",
-        json.dumps(provenance, indent=2, default=str),
-        "```",
-        "",
-        "## Tier 1/2 parity vs `strategy.evaluate`",
-        "",
-        "```json",
-        json.dumps(parity, indent=2, default=str),
-        "```",
-        "",
-        "## Event-study table (complete windows only; episode-first means)",
-        "",
-        table_md,
-        "",
-        "## Equal-cash portfolios (QTUM OOS)",
-        "",
-        "```json",
-        json.dumps(portfolios.get("QTUM", portfolios), indent=2, default=str)[:80000],
-        "```",
-        "",
-        "## Limitations",
-        "",
-        "- QTUM is the only decision series. SMH/QQQ are proxies; AIPO is descriptive.",
-        "- Four frozen candidates still create a multiple-testing burden (120d primary).",
-        "- Independent n is the binding constraint for rare washouts.",
-        "- Yahoo adjusted bars; 0% cash yield; episode gap of 60 days is an approximation.",
-        "- Survivor/regime: watchlist names that still exist, tech/semiconductor path.",
-        "- Current 2026-11 washout has incomplete 20d+ windows and is not scored at those horizons.",
-        "- Proxy success alone cannot justify production change.",
-        "",
     ]
-    (out_dir / "REPORT.md").write_text("\n".join(lines), encoding="utf-8")
+    (out_dir / "run_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def run(config_path: str | None = None, out_dir: Path | None = None) -> dict[str, Any]:
