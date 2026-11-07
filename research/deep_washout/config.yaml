@@ -1,0 +1,103 @@
+# Frozen 2026-11-07, before held-out evaluation.
+# Do not retune these numbers after seeing OOS results.
+protocol_id: deep-washout-v1
+frozen_at: "2026-11-07"
+seed: 42
+
+assets:
+  decision: [QTUM]
+  descriptive: [AIPO]
+  proxies: [SMH, QQQ]
+
+asof_check_date: "2026-11-06"
+horizons: [20, 60, 120, 250]
+maturity_bars: 350
+episode_gap_bars: 60
+bootstrap_n: 1000
+ci_level: 0.95
+
+# Chronological split (calendar, not data-dependent).
+# Frequency-check window is reported but cannot change candidates.
+# Ship/no-ship uses held-out OOS only.
+oos_start: "2022-01-01"
+walk_forward_cuts: ["2022-01-01", "2024-01-01"]
+
+execution:
+  signal_at: close
+  fill_at: next_open
+  slippage_bps: 5.0
+  cost_bps_one_way: 5.0
+  cash_yield: 0.0
+
+portfolio:
+  contribution_monthly: 1000.0
+  unit_cash: 1000.0
+  tier1_units: 1.0
+  tier2_units: 2.0
+  dw_units: 1.5
+  dca_on: month_start
+
+# Core location shared by every DW candidate (not crossed into a grid).
+core_location:
+  min_pct_below_sma200: 8.0
+  min_atr_below_sma200: 2.0
+  max_zscore: -1.5
+  require_sma200_mature: true
+  require_sma200_rising: false
+
+candidates:
+  DW1_BLIND:
+    rsi_daily_max: 35.0
+    rsi_weekly_max: 40.0
+    rsi_combine: or
+    confirmation: none
+    volume_min_multiple: 0.0
+    min_drawdown_52w_pct: 0.0
+    require_divergence: false
+  DW2_DRAWDOWN_BLIND:
+    rsi_daily_max: 35.0
+    rsi_weekly_max: 40.0
+    rsi_combine: or
+    confirmation: none
+    volume_min_multiple: 0.0
+    min_drawdown_52w_pct: 15.0
+    require_divergence: false
+  DW3_CONFIRM5_VOL:
+    rsi_daily_max: 35.0
+    rsi_weekly_max: 40.0
+    rsi_combine: or
+    confirmation: prior_high_5
+    volume_min_multiple: 1.5
+    min_drawdown_52w_pct: 0.0
+    require_divergence: false
+  DW4_CONFIRM10_DIVERGENCE:
+    rsi_daily_max: 35.0
+    rsi_weekly_max: 40.0
+    rsi_combine: or
+    confirmation: prior_high_10
+    volume_min_multiple: 0.0
+    min_drawdown_52w_pct: 0.0
+    require_divergence: true
+
+# Diagnostic only — rejected a priori as a trigger (not in the shippable family).
+rejected_naive_next_tranche:
+  enabled_as_diagnostic: true
+  spacing_atr: 2.25
+
+success:
+  min_independent_episodes_oos: 6
+  min_hit_rate_120d: 0.55
+  max_mae_vs_tier2_ratio_120d: 1.5
+  min_dca_terminal_edge: 0.01
+  max_avg_idle_cash_pct: 50.0
+  require_complete_windows_only: true
+  proxy_cannot_justify_production: true
+  descriptive_cannot_justify_production: true
+
+sizing_if_shipped:
+  units: 1.5
+  spacing_atr: 2.25
+  spacing_reset_bars: 21
+  max_dw_units_per_252d: 3.0
+  wait_for_prior_tier_next_tranche: true
+  note: "Spacing is a risk control after a buy, never a trigger."
