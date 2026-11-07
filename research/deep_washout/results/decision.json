@@ -1,0 +1,53 @@
+{
+  "ship_tier": false,
+  "candidates_passing_event_tests": [],
+  "chosen_event_candidate": null,
+  "reasons": [
+    "DW1_BLIND: n_independent_120d=3 < 6 (automatic insufficient evidence); 120d mean 1.17% not > MATCHED_REGIME 21.49%; 120d mean 1.17% not > TIER12_EXACT 14.60%; 120d hit 66.67% / CI lo -8.72% failed (need hit>=55.00% and CI_lo>0, or CI_lo > matched-regime); median MAE -0.1602 worse than 1.5\u00d7 reference -0.0502",
+    "DW2_DRAWDOWN_BLIND: n_independent_120d=3 < 6 (automatic insufficient evidence); 120d mean 1.17% not > MATCHED_REGIME 21.49%; 120d mean 1.17% not > TIER12_EXACT 14.60%; 120d hit 66.67% / CI lo -8.72% failed (need hit>=55.00% and CI_lo>0, or CI_lo > matched-regime); median MAE -0.1602 worse than 1.5\u00d7 reference -0.0502",
+    "DW3_CONFIRM5_VOL: n_independent_120d=0 < 6 (automatic insufficient evidence); no complete 120d windows",
+    "DW4_CONFIRM10_DIVERGENCE: n_independent_120d=1 < 6 (automatic insufficient evidence); 120d mean 15.27% not > MATCHED_REGIME 21.49%"
+  ],
+  "details": {
+    "DW1_BLIND": {
+      "n_independent_120d": 3,
+      "fail": [
+        "n_independent_120d=3 < 6 (automatic insufficient evidence)",
+        "120d mean 1.17% not > MATCHED_REGIME 21.49%",
+        "120d mean 1.17% not > TIER12_EXACT 14.60%",
+        "120d hit 66.67% / CI lo -8.72% failed (need hit>=55.00% and CI_lo>0, or CI_lo > matched-regime)",
+        "median MAE -0.1602 worse than 1.5\u00d7 reference -0.0502"
+      ],
+      "pass": false
+    },
+    "DW2_DRAWDOWN_BLIND": {
+      "n_independent_120d": 3,
+      "fail": [
+        "n_independent_120d=3 < 6 (automatic insufficient evidence)",
+        "120d mean 1.17% not > MATCHED_REGIME 21.49%",
+        "120d mean 1.17% not > TIER12_EXACT 14.60%",
+        "120d hit 66.67% / CI lo -8.72% failed (need hit>=55.00% and CI_lo>0, or CI_lo > matched-regime)",
+        "median MAE -0.1602 worse than 1.5\u00d7 reference -0.0502"
+      ],
+      "pass": false
+    },
+    "DW3_CONFIRM5_VOL": {
+      "n_independent_120d": 0,
+      "fail": [
+        "n_independent_120d=0 < 6 (automatic insufficient evidence)",
+        "no complete 120d windows"
+      ],
+      "pass": false
+    },
+    "DW4_CONFIRM10_DIVERGENCE": {
+      "n_independent_120d": 1,
+      "fail": [
+        "n_independent_120d=1 < 6 (automatic insufficient evidence)",
+        "120d mean 15.27% not > MATCHED_REGIME 21.49%"
+      ],
+      "pass": false
+    }
+  },
+  "would_ship_if_portfolio_ok": false,
+  "conclusion": "Insufficient evidence to ship a new accumulation tier. Research-only: live Tier 1/2, watchlist, and bots are unchanged."
+}
