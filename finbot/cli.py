@@ -11,6 +11,9 @@ import time
 from datetime import date, datetime, timezone
 from typing import Callable, Sequence
 
+import pandas as pd
+
+from finbot import ledger as scan_ledger
 from finbot.config import AppConfig, TickerConfig, load_config
 from finbot.data import DataError, StaleDataError, ensure_fresh, fetch_earnings_dates, fetch_ohlcv
 from finbot.indicators import build_snapshot
@@ -58,7 +61,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--resend",
         action="store_true",
-        help="Re-POST the webhook even if this session's Issue records it was already sent.",
+        help="Re-grade and re-POST even if the ledger or this session's Issue says it was already sent.",
+    )
+    parser.add_argument(
+        "--ledger",
+        default=os.environ.get("FINBOT_LEDGER") or None,
+        help="JSON file recording the last session graded per ticker; tickers already graded "
+        "for the expected session are skipped (env FINBOT_LEDGER; default: no ledger).",
     )
     parser.add_argument(
         "--log-level",
@@ -93,6 +102,9 @@ def scan_ticker(cfg: TickerConfig, expected: date | None = None) -> ScanResult:
     ohlcv = fetch_ohlcv(cfg.symbol, period=cfg.lookback_period)
     if expected is not None:
         ensure_fresh(ohlcv, cfg.symbol, expected)
+        # A run that starts after the next session opens would otherwise grade
+        # that session's partial bar; only completed sessions are graded.
+        ohlcv = ohlcv[ohlcv.index.normalize() <= pd.Timestamp(expected)]
     earnings = fetch_earnings_dates(cfg.symbol, asset_type=cfg.asset_type)
     snapshot = build_snapshot(ohlcv, cfg)
     return evaluate(snapshot, earnings, cfg)
@@ -122,8 +134,20 @@ def run(
     expected = expected_session(clock())
     logger.info("Expected session: %s", expected.isoformat())
 
+    ledger_path = None if args.dry_run else args.ledger
+    ledger = scan_ledger.load(ledger_path)
+    pending = []
+    for cfg in tickers:
+        if not args.resend and scan_ledger.already_handled(ledger, cfg.symbol, expected):
+            logger.info(
+                "%s %s: already graded and reported by an earlier run; skipping",
+                cfg.symbol,
+                expected.isoformat(),
+            )
+            continue
+        pending.append(cfg)
+
     failures = 0
-    pending = list(tickers)
     retries_left = max(0, args.stale_retries)
     while pending:
         stale: list[TickerConfig] = []
@@ -133,6 +157,8 @@ def run(
                 stale.append(cfg)
             elif outcome == "failed":
                 failures += 1
+            else:
+                scan_ledger.record(ledger_path, ledger, cfg.symbol, expected)
         if not stale:
             break
         if retries_left <= 0:

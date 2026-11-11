@@ -178,3 +178,70 @@ def test_existing_issue_reports_webhook_label(monkeypatch: pytest.MonkeyPatch):
     with patch("finbot.notifier.find_existing_issue", return_value=existing):
         ref = notifier.maybe_create_issue(_entry_result())
     assert ref == IssueRef(url="https://github.test/14", number=14, existed=True, webhook_sent=True)
+
+
+# Catch-up run: QTUM/AIPO/SPCX stale on 2026-11-04, -05 and -10 (runs 42941953221,
+# 42937589291, 42144750634, 41948772173) were never graded. A later run reads the
+# ledger and fills only the tickers the first run did not report.
+
+FIRST_RUN = _utc("2026-11-11T01:15:00")  # Tue 2026-11-10 5:15pm PST
+CATCH_UP = _utc("2026-11-11T07:30:00")
+
+
+def _scan_all(ledger_path, frames: dict[str, list[pd.DataFrame]], now: datetime, extra=()):
+    feeds = {sym: iter(items) for sym, items in frames.items()}
+
+    def fetch(symbol, period="2y"):
+        return next(feeds[symbol])
+
+    with patch("finbot.cli.fetch_ohlcv", side_effect=fetch), patch(
+        "finbot.cli.fetch_earnings_dates", return_value=[]
+    ), patch("finbot.cli.notify", return_value=None) as notify_mock:
+        code = cli.run(
+            ["--ledger", str(ledger_path), "--stale-retries", "0", *extra],
+            now=lambda: now,
+            sleep=lambda _: None,
+        )
+    graded = sorted((c.args[0].ticker, c.args[0].signal_date) for c in notify_mock.call_args_list)
+    return code, graded
+
+
+def test_catch_up_grades_only_tickers_the_first_run_skipped(tmp_path):
+    ledger = tmp_path / "ledger.json"
+    fresh, stale = _bars("2026-11-10"), _bars("2026-11-07")
+    code, graded = _scan_all(
+        ledger,
+        {"IBM": [fresh], "QTUM": [stale], "AIPO": [stale], "SPCX": [stale]},
+        FIRST_RUN,
+    )
+    assert code == 1
+    assert graded == [("IBM", date(2026, 11, 10))]
+
+    code, graded = _scan_all(
+        ledger, {"QTUM": [fresh], "AIPO": [fresh], "SPCX": [fresh]}, CATCH_UP
+    )
+    assert code == 0
+    assert graded == [(s, date(2026, 11, 10)) for s in ("AIPO", "QTUM", "SPCX")]
+
+    # A third run (re-run, or catch-up after a complete first run) posts nothing.
+    code, graded = _scan_all(ledger, {}, CATCH_UP)
+    assert code == 0
+    assert graded == []
+
+
+def test_resend_ignores_ledger(tmp_path):
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text('{"IBM": "2026-11-10"}')
+    code, graded = _scan_all(ledger, {"IBM": [_bars("2026-11-10")]}, CATCH_UP, ["--ticker", "IBM", "--resend"])
+    assert graded == [("IBM", date(2026, 11, 10))]
+
+
+def test_run_during_next_session_does_not_grade_partial_bar():
+    """Catch-up delayed into Wednesday's session still grades Tuesday's close."""
+    wed_midday = _utc("2026-10-21T17:00:00")  # Wed 1pm EDT; expected session Tue 10-20
+    with patch("finbot.cli.fetch_ohlcv", return_value=_bars("2026-10-21")), patch(
+        "finbot.cli.fetch_earnings_dates", return_value=[]
+    ), patch("finbot.cli.notify", return_value=None) as notify_mock:
+        assert cli.run(["--ticker", "QTUM"], now=lambda: wed_midday, sleep=lambda _: None) == 0
+    (result,), _ = notify_mock.call_args
+    assert result.signal_date == date(2026, 10, 20)

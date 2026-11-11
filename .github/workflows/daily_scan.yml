@@ -4,7 +4,17 @@ on:
   schedule:
     # Weekdays 21:15 UTC (post-market close year-round: 5:15pm EDT in summer, 4:15pm EST in winter).
     - cron: "15 21 * * 1-5"
+    # Catch-up, Tue-Sat 07:30 UTC (11:30pm PST / 12:30am PDT): GitHub often starts the
+    # first run hours late, after which Yahoo can still lack the ETF bars. This run
+    # grades the same session but skips every ticker the ledger says is already done.
+    - cron: "30 7 * * 2-6"
   workflow_dispatch:
+
+# One scan at a time, so a late first run and the catch-up never grade the same
+# ticker in parallel.
+concurrency:
+  group: daily-scan
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -27,9 +37,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Last session graded per ticker, carried between runs. The newest cache
+      # matching the prefix is restored; each run saves a new one.
+      - name: Restore scan ledger
+        uses: actions/cache/restore@v4
+        with:
+          path: .finbot/ledger.json
+          key: finbot-ledger-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: finbot-ledger-
+
       - name: Run finbot scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINBOT_LEDGER: .finbot/ledger.json
           # Per-ticker webhook secrets only (no unsuffixed fallback). A missing
           # pair skips that ticker's webhook with a warning; the run still passes.
           FINBOT_GROK_WEBHOOK_URL_IBM: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_IBM }}
@@ -41,3 +61,10 @@ jobs:
           FINBOT_GROK_WEBHOOK_URL_SPCX: ${{ secrets.FINBOT_GROK_WEBHOOK_URL_SPCX }}
           FINBOT_GROK_WEBHOOK_SECRET_SPCX: ${{ secrets.FINBOT_GROK_WEBHOOK_SECRET_SPCX }}
         run: python -m finbot.cli
+
+      - name: Save scan ledger
+        if: always() && hashFiles('.finbot/ledger.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .finbot/ledger.json
+          key: finbot-ledger-${{ github.run_id }}-${{ github.run_attempt }}

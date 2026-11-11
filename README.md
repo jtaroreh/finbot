@@ -90,6 +90,7 @@ pytest
 `.github/workflows/daily_scan.yml` is scheduled as standard repository automation:
 - **Schedule:** `15 21 * * 1-5` (weekdays at 21:15 UTC / 4:15pm US Eastern), executing after the official New York cash equity session closes and settlement prices are finalized.
 - **Workflow Dispatch:** Can also be triggered manually via GitHub's UI.
+- **Catch-up:** `30 7 * * 2-6` (Tue–Sat 07:30 UTC, 11:30pm PST / 12:30am PDT) re-runs the same session for tickers the first run skipped because Yahoo had not published the bar yet. A ledger (`.finbot/ledger.json`, carried between runs with `actions/cache`) records the last session graded per ticker, so any run, scheduled or manual, skips tickers already reported for that session; pass `--resend` to override. Bars after the expected session are dropped, so a delayed run never grades a session still in progress.
 - **Permissions:** `contents: read` and `issues: write`.
 
 On every successful scan, the action POSTs the JSON snapshot to configured Grok Bot webhooks. On verified accumulation confluence (`signal=ENTRY`), it creates an Issue titled `[ACCUMULATION] TICKER YYYY-MM-DD`.
